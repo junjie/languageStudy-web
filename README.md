@@ -6,8 +6,8 @@ your audio live in a folder you choose on your own computer, and the only thing
 that ever leaves the machine is a request to Google, signed with your own API
 key.
 
-**[Open the app →](https://your-username.github.io/languageStudy-web/)**
-*(replace this link with your GitHub Pages URL once you enable Pages)*
+**[Open the app →](https://nejra0031.github.io/languageStudy-web/)**
+*(live once GitHub Pages is enabled: Settings → Pages → deploy from `main`, root)*
 
 ---
 
