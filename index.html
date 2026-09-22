@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Language Study</title>
+<meta name="description" content="Flashcards, typing practice and AI dictation for any language. Your own API key, your own folder, no accounts and no server.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect width='16' height='16' fill='%230f1117'/><rect x='3' y='3' width='10' height='10' fill='%23d4b455'/></svg>">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+
+<header class="bar">
+  <div class="brand">Language<b>Study</b></div>
+  <div class="bar-status" id="bar-status">Starting…</div>
+  <button class="btn btn--sm" id="theme-btn" aria-label="Switch colour theme">Light</button>
+</header>
+
+<nav class="tabs" role="tablist" aria-label="Sections">
+  <button class="tab" role="tab" id="tab-settings" data-tab="settings" aria-selected="false" aria-controls="panel-settings">Settings</button>
+  <button class="tab" role="tab" id="tab-flashcards" data-tab="flashcards" aria-selected="false" aria-controls="panel-flashcards">Flashcards</button>
+  <button class="tab" role="tab" id="tab-typing" data-tab="typing" aria-selected="false" aria-controls="panel-typing">Typing</button>
+  <button class="tab" role="tab" id="tab-dictation" data-tab="dictation" aria-selected="false" aria-controls="panel-dictation">Dictation</button>
+</nav>
+
+<main>
+
+<!-- ── SETTINGS ──────────────────────────────────────────────── -->
+<section class="panel" id="panel-settings" role="tabpanel" aria-labelledby="tab-settings" hidden>
+<div class="wrap">
+
+  <div class="block">
+    <div class="block-head"><h2>Data folder</h2><span class="hint" id="folder-hint"></span></div>
+    <div class="block-body">
+      <p class="note">Everything you practise is kept in one folder on this device: decks, settings, and the audio the dictation tab generates. Nothing is uploaded and there is no account. Pick an empty folder; the app creates what it needs.</p>
+      <div class="row">
+        <button class="btn btn--primary" id="folder-connect">Choose folder</button>
+        <button class="btn" id="folder-disconnect" hidden>Disconnect</button>
+        <button class="btn btn--sm" id="folder-export" hidden>Download current deck</button>
+      </div>
+    </div>
+    <div class="status" id="folder-status">Not connected. The app still works, but nothing will be saved.</div>
+  </div>
+
+  <div class="block">
+    <div class="block-head"><h2>Gemini API key</h2><span class="hint">needed for dictation only</span></div>
+    <div class="block-body">
+      <p class="note">Dictation calls the Gemini API directly from this page with <strong>your</strong> key. It is stored in this browser's local storage, never in the data folder, so it cannot end up in a git commit, and it is sent to nobody but Google. Get one free at <code>aistudio.google.com/apikey</code>.</p>
+      <label class="field"><span>API key</span>
+        <input type="password" id="api-key" placeholder="AIza…" autocomplete="off" spellcheck="false">
+      </label>
+      <div class="row">
+        <button class="btn" id="key-test">Test key</button>
+        <span class="note" id="key-test-note">Spends one text-model call from today's budget.</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="block">
+    <div class="block-head"><h2>Language</h2><span class="hint">feeds the sentence prompt</span></div>
+    <div class="block-body">
+      <div class="grid">
+        <label class="field"><span>Target language</span>
+          <input type="text" id="set-language" placeholder="Vietnamese" spellcheck="false">
+        </label>
+        <label class="field"><span>Learner level</span>
+          <input type="text" id="set-level" placeholder="intermediate" spellcheck="false">
+        </label>
+      </div>
+      <label class="field"><span>Register or dialect note (optional)</span>
+        <input type="text" id="set-note" placeholder="Southern register, everyday spoken style.">
+      </label>
+      <div class="grid grid--tight">
+        <label class="field"><span>Words min</span><input type="number" id="set-wmin" min="2" max="60"></label>
+        <label class="field"><span>Words max</span><input type="number" id="set-wmax" min="3" max="80"></label>
+        <label class="field"><span>Terms per sentence</span><input type="number" id="set-terms" min="1" max="6"></label>
+      </div>
+      <p class="note">Any language the model writes is fine; type its English name. Answer checking is language-agnostic: it compares accents and diacritics exactly, and aligns words with them stripped, which works the same for Vietnamese tones, Spanish acutes and German umlauts.</p>
+    </div>
+  </div>
+
+  <div class="block">
+    <div class="block-head"><h2>Models</h2><span class="hint">Gemini model IDs</span></div>
+    <div class="block-body">
+      <div class="grid">
+        <label class="field"><span>Text model — writes the sentence</span>
+          <input type="text" id="set-textmodel" spellcheck="false">
+        </label>
+        <label class="field"><span>Speech model — reads it aloud</span>
+          <input type="text" id="set-ttsmodel" spellcheck="false">
+        </label>
+      </div>
+      <p class="note">If a model ID is wrong the API's own error is shown verbatim, so a 404 here means exactly that.</p>
+    </div>
+  </div>
+
+  <div class="block">
+    <div class="block-head"><h2>Call budget</h2><span class="hint" id="quota-hint"></span></div>
+    <div class="block-body">
+      <p class="note">Counted in this browser before a request goes out, so you never discover the limit by being refused by Google. Windows roll over the last minute and the last 24 hours. <strong>0 means unlimited.</strong> The defaults are Google's free tier.</p>
+      <div class="grid grid--tight">
+        <label class="field"><span>Text / min</span><input type="number" id="set-trpm" min="0"></label>
+        <label class="field"><span>Text / day</span><input type="number" id="set-trpd" min="0"></label>
+        <label class="field"><span>Speech / min</span><input type="number" id="set-srpm" min="0"></label>
+        <label class="field"><span>Speech / day</span><input type="number" id="set-srpd" min="0"></label>
+      </div>
+      <div class="row">
+        <button class="btn btn--sm btn--danger" id="quota-reset">Reset budget</button>
+        <span class="note">Clears the local count. It does not reset Google's.</span>
+      </div>
+    </div>
+    <div class="status" id="quota-status"></div>
+  </div>
+
+  <div class="block">
+    <div class="block-head"><h2>Prompts</h2><span class="hint">exactly what gets sent</span></div>
+    <div class="block-body">
+      <label class="field"><span>Sentence prompt — text model</span>
+        <textarea id="set-prompt-sentence" rows="14" spellcheck="false"></textarea>
+      </label>
+      <p class="note">Placeholders: <code>{language}</code> <code>{level}</code> <code>{languageNote}</code> <code>{terms}</code> <code>{minWords}</code> <code>{maxWords}</code>. The reply is read back from the <code>TARGET:</code> and <code>EN:</code> lines, so keep those two labels; everything else is yours to rewrite.</p>
+      <div class="row"><button class="btn btn--sm" id="prompt-sentence-reset">Reset to default</button></div>
+
+      <label class="field"><span>Speech prompt — speech model</span>
+        <textarea id="set-prompt-speech" rows="3" spellcheck="false"></textarea>
+      </label>
+      <p class="note">Placeholder: <code>{sentence}</code>. Bare <code>{sentence}</code> just reads it out. A prefix such as <em>Read slowly and clearly for a language learner:</em> steers the delivery. The answer key stays the sentence alone, whatever you put here.</p>
+      <div class="row"><button class="btn btn--sm" id="prompt-speech-reset">Reset to default</button></div>
+
+      <label class="field"><span>Preview — rendered with your settings and three sample cards</span>
+        <textarea id="prompt-preview" rows="12" readonly spellcheck="false"></textarea>
+      </label>
+    </div>
+  </div>
+
+  <div class="block">
+    <div class="block-head"><h2>Voices</h2><span class="hint" id="voice-hint"></span></div>
+    <div class="block-body">
+      <p class="note">One is drawn at random for each new sentence, so listening practice is not always the same speaker. Untick the ones you would rather not hear. You cannot untick them all, since something has to read the sentence.</p>
+      <div class="row">
+        <button class="btn btn--sm" id="voice-all">Select all</button>
+        <button class="btn btn--sm" id="voice-none">Just one</button>
+      </div>
+      <div class="voice-grid" id="voice-grid"></div>
+    </div>
+  </div>
+
+</div>
+</section>
+
+<!-- ── FLASHCARDS ────────────────────────────────────────────── -->
+<section class="panel" id="panel-flashcards" role="tabpanel" aria-labelledby="tab-flashcards" hidden>
+<div class="wrap wrap--wide">
+
+  <div class="block">
+    <div class="block-head">
+      <h2>Deck</h2>
+      <span class="hint">the file, as it is stored</span>
+    </div>
+    <div class="block-body">
+      <div class="row">
+        <label class="field" style="flex:1 1 220px"><span>Deck file</span>
+          <select id="deck-select"></select>
+        </label>
+        <div class="row" style="align-self:flex-end;padding-bottom:1px">
+          <button class="btn btn--sm" id="deck-new">New</button>
+          <button class="btn btn--sm" id="deck-rename">Rename</button>
+          <button class="btn btn--sm btn--danger" id="deck-delete">Delete</button>
+          <button class="btn btn--sm" id="deck-import">Import watchlist…</button>
+        </div>
+      </div>
+      <p class="note">This is the deck file itself: a JSON array, one object per card. <strong>front</strong> is the word in the language you are learning, <strong>back</strong> is its meaning; <strong>notes</strong> is optional. <strong>score</strong>, <strong>recent</strong> and <strong>last_seen</strong> are written by the practice tabs, so you can leave them out of a card you type by hand and they will be filled in.</p>
+      <textarea class="editor" id="deck-editor" spellcheck="false" aria-label="Deck contents as JSON"></textarea>
+      <div class="row">
+        <button class="btn btn--primary" id="deck-save">Save deck</button>
+        <button class="btn" id="deck-revert">Revert</button>
+        <button class="btn" id="deck-format">Tidy JSON</button>
+      </div>
+    </div>
+    <div class="status" id="deck-status"></div>
+  </div>
+
+</div>
+</section>
+
+<!-- ── TYPING ────────────────────────────────────────────────── -->
+<section class="panel" id="panel-typing" role="tabpanel" aria-labelledby="tab-typing" hidden>
+<div class="wrap">
+
+  <div class="block">
+    <div class="block-head">
+      <h2>Typing practice</h2>
+      <span class="hint" id="ty-pool"></span>
+    </div>
+    <div class="block-body">
+      <div class="row">
+        <div class="seg" id="ty-scope" role="group" aria-label="Which cards to practise">
+          <button data-scope="weak" aria-pressed="false">Weak</button>
+          <button data-scope="developing" aria-pressed="false">+ Developing</button>
+          <button data-scope="all" aria-pressed="true">All</button>
+        </div>
+        <span class="spacer"></span>
+        <div class="seg" id="ty-dir" role="group" aria-label="Which side to show">
+          <button data-dir="front-to-back" aria-pressed="false">Front → back</button>
+          <button data-dir="back-to-front" aria-pressed="false">Back → front</button>
+          <button data-dir="random" aria-pressed="true">Mixed</button>
+        </div>
+      </div>
+
+      <div class="tally">
+        <div><b id="ty-total">0</b><span>Answered</span></div>
+        <div><b class="is-ok" id="ty-right">0</b><span>Right</span></div>
+        <div><b class="is-bad" id="ty-wrong">0</b><span>Wrong</span></div>
+      </div>
+
+      <div id="ty-card"></div>
+      <div id="ty-prev"></div>
+    </div>
+  </div>
+
+</div>
+</section>
+
+<!-- ── DICTATION ─────────────────────────────────────────────── -->
+<section class="panel" id="panel-dictation" role="tabpanel" aria-labelledby="tab-dictation" hidden>
+<div class="wrap">
+
+  <div class="block">
+    <div class="block-head">
+      <h2>Dictation</h2>
+      <span class="hint" id="dc-bank"></span>
+    </div>
+    <div class="block-body" id="dc-body">
+      <div id="dc-gate"></div>
+
+      <div id="dc-stage" hidden>
+        <div class="row">
+          <div class="seg" id="dc-scope" role="group" aria-label="Which cards to practise">
+            <button data-scope="weak" aria-pressed="false">Weak</button>
+            <button data-scope="developing" aria-pressed="false">+ Developing</button>
+            <button data-scope="all" aria-pressed="true">All</button>
+          </div>
+          <span class="spacer"></span>
+          <span class="quota" id="dc-quota"></span>
+        </div>
+
+        <div class="row">
+          <button class="btn btn--primary" id="dc-new">New sentence</button>
+          <button class="btn" id="dc-bank-btn">From bank</button>
+          <span class="spacer"></span>
+          <div class="seg" id="dc-rate" role="group" aria-label="Playback speed">
+            <button data-rate="0.6" aria-pressed="false">0.6×</button>
+            <button data-rate="0.8" aria-pressed="false">0.8×</button>
+            <button data-rate="1" aria-pressed="true">1×</button>
+          </div>
+        </div>
+
+        <div id="dc-error"></div>
+
+        <div class="card" id="dc-card" hidden>
+          <div class="card-meta" id="dc-meta"></div>
+          <div class="card-body">
+            <div class="row" style="gap:16px;align-items:flex-start">
+              <button class="play" id="dc-play" aria-label="Play the sentence again">▶</button>
+              <div style="flex:1 1 280px;min-width:0">
+                <div class="prompt-label">Target words</div>
+                <div class="term-chips" id="dc-terms"></div>
+              </div>
+            </div>
+            <label class="field" style="margin-top:18px"><span>Type what you hear</span>
+              <textarea id="dc-input" rows="3" spellcheck="false" autocomplete="off"></textarea>
+            </label>
+            <div class="row" style="margin-top:12px">
+              <button class="btn btn--primary" id="dc-check">Check</button>
+              <button class="btn btn--primary" id="dc-next" hidden>Next</button>
+              <span class="note">Ctrl + Enter to check · Space to replay</span>
+            </div>
+            <div id="dc-result" hidden style="margin-top:18px"></div>
+          </div>
+        </div>
+
+        <div id="dc-idle" class="gate" hidden></div>
+      </div>
+    </div>
+  </div>
+
+</div>
+</section>
+
+</main>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>

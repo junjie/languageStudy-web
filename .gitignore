@@ -1,0 +1,15 @@
+# The app writes user data into whatever folder the user picks. If that folder
+# happens to be a clone of this repo, none of it may ever be committed.
+settings.json
+decks/
+audio/
+*.wav
+*.mp3
+.env
+
+# Editors / OS
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+node_modules/

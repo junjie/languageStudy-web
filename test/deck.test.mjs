@@ -1,0 +1,147 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import {
+  recordResult, stats, isDictatable, normalizeCard, parseDeck, serializeDeck,
+  importWatchlist, pickWeighted, inScope, slugify, WINDOW,
+} from '../js/deck.js';
+
+const card = (recent = []) => ({ front: 'x', back: 'y', score: 1, recent: recent.slice() });
+
+test('score follows accuracy once a full window exists', () => {
+  const cases = [
+    [[1, 0, 0, 0, 0, 0, 0, 0], 1],   // 12.5%
+    [[1, 1, 0, 0, 0, 0, 0, 0], 2],   // 25%
+    [[1, 1, 1, 1, 0, 0, 0, 0], 3],   // 50%
+    [[1, 1, 1, 1, 1, 1, 0, 0], 4],   // 75%
+    [[1, 1, 1, 1, 1, 1, 1, 1], 5],   // 100%
+  ];
+  for (const [pattern, expected] of cases) {
+    const c = card(pattern.slice(0, 7).map(Boolean));
+    recordResult(c, !!pattern[7]);
+    assert.equal(c.score, expected, `pattern ${pattern.join('')}`);
+  }
+});
+
+test('a short perfect streak is capped at weak', () => {
+  const c = card();
+  for (let i = 0; i < WINDOW - 1; i++) {
+    recordResult(c, true);
+    assert.equal(c.score, 2, `after ${i + 1} correct answers`);
+  }
+  recordResult(c, true);
+  assert.equal(c.score, 5, 'the cap lifts on the eighth answer');
+});
+
+test('the window drops the oldest result rather than growing', () => {
+  const c = card();
+  for (let i = 0; i < 12; i++) recordResult(c, i >= 4);
+  assert.equal(c.recent.length, WINDOW);
+  assert.deepEqual(c.recent, Array(WINDOW).fill(true));
+  assert.equal(c.score, 5);
+});
+
+test('encounters and correct are derived, never stored', () => {
+  const c = card([true, false, true]);
+  assert.deepEqual(stats(c), { encounters: 3, correct: 2, accuracy: 2 / 3 });
+  recordResult(c, false);
+  assert.equal(stats(c).encounters, 4);
+  assert.equal('encounters' in c, false);
+  assert.equal('correct' in c, false);
+});
+
+test('recordResult stamps the date and reports the move', () => {
+  const c = card([true, true, true, true, true, true, true]);
+  const move = recordResult(c, true);
+  assert.deepEqual({ before: move.before, after: move.after }, { before: 1, after: 5 });
+  assert.match(c.last_seen, /^\d{4}-\d{2}-\d{2}$/);
+});
+
+test('isDictatable keeps phrases and rejects what has no single string', () => {
+  assert.equal(isDictatable({ front: 'đóng (học phí)' }), true);
+  assert.equal(isDictatable({ front: 'giữ gìn' }), true);
+  assert.equal(isDictatable({ front: 'bằng cách' }), true);
+  assert.equal(isDictatable({ front: 'đóng vs chi' }), false);
+  assert.equal(isDictatable({ front: 'thứ / quà' }), false);
+  assert.equal(isDictatable({ front: 'càng… càng' }), false);
+  assert.equal(isDictatable({ front: 'sự + danh từ' }), false);
+  assert.equal(isDictatable({ front: 'a b c d e f g' }), false, 'too long to hear as a unit');
+  assert.equal(isDictatable({ front: '' }), false);
+});
+
+test('a bare front/back pair is filled in', () => {
+  assert.deepEqual(normalizeCard({ front: ' a ', back: 'b' }), {
+    front: 'a', back: 'b', score: 1, recent: [], last_seen: null,
+  });
+});
+
+test('normalizeCard clamps a nonsense score and trims a long history', () => {
+  const c = normalizeCard({ front: 'a', back: 'b', score: 99, recent: Array(20).fill(true) });
+  assert.equal(c.score, 1);
+  assert.equal(c.recent.length, WINDOW);
+});
+
+test('parse and serialize round-trip', () => {
+  const source = [
+    { front: 'cải tiến', back: 'to improve', notes: 'n', score: 3, recent: [true, false], last_seen: '2026-01-02' },
+  ];
+  const text = serializeDeck(source);
+  const back = parseDeck(text);
+  assert.equal(back.error, undefined);
+  assert.deepEqual(back.cards, source);
+  assert.equal(serializeDeck(back.cards), text);
+});
+
+test('the history is folded onto one line so the words stay readable', () => {
+  const text = serializeDeck([{ front: 'a', back: 'b', score: 1, recent: [true, false, true] }]);
+  assert.match(text, /"recent": \[true, false, true\]/);
+  assert.equal(text.includes('\n    true'), false);
+  assert.match(serializeDeck([{ front: 'a', back: 'b', score: 1, recent: [] }]), /"recent": \[\]/);
+  assert.equal(parseDeck(text).cards[0].recent.length, 3, 'still parses');
+});
+
+test('parse reports where the JSON broke', () => {
+  const bad = parseDeck('[\n  {\n    "front": ,\n  }\n]');
+  assert.match(bad.error, /line 3/);
+  assert.equal(parseDeck('{}').error, 'The deck must be a JSON array of cards, starting with [ and ending with ].');
+  assert.match(parseDeck('[{"front":"a"}]').error, /Card 1 needs both/);
+  assert.match(parseDeck('[null]').error, /Card 1 is not an object/);
+});
+
+test('a watchlist converts into cards', () => {
+  const watchlist = JSON.stringify({
+    items: [
+      { id: 'w1', term: 'cải tiến', english: 'to improve', notes: 'n', score: 3, recent_results: [true, false], last_seen: '2026-01-01' },
+      { id: 'w2', term: 'no english here' },
+    ],
+  });
+  const out = importWatchlist(watchlist);
+  assert.equal(out.cards.length, 1, 'an item with no meaning cannot be a card');
+  assert.equal(out.cards[0].front, 'cải tiến');
+  assert.deepEqual(out.cards[0].recent, [true, false]);
+  assert.match(importWatchlist('[]').error, /items/);
+});
+
+test('weighted picking draws without replacement and favours weak cards', () => {
+  const pool = [card(), card(), card()].map((c, i) => ({ ...c, front: String(i) }));
+  const drawn = pickWeighted(pool, 3);
+  assert.equal(new Set(drawn.map((c) => c.front)).size, 3);
+  assert.equal(pickWeighted(pool, 9).length, 3, 'cannot draw more than exist');
+
+  const weak = { ...card(), score: 1 };
+  const strong = { ...card(), score: 5 };
+  let weakFirst = 0;
+  for (let i = 0; i < 400; i++) if (pickWeighted([weak, strong], 1)[0] === weak) weakFirst++;
+  assert.ok(weakFirst > 300, `weak card should dominate, drawn ${weakFirst}/400`);
+});
+
+test('scope filters by score', () => {
+  assert.equal(inScope({ score: 2 }, 'weak'), true);
+  assert.equal(inScope({ score: 3 }, 'weak'), false);
+  assert.equal(inScope({ score: 3 }, 'developing'), true);
+  assert.equal(inScope({ score: 5 }, 'all'), true);
+});
+
+test('slugify produces a safe filename', () => {
+  assert.equal(slugify('Tiếng Việt — Level 3'), 'tieng-viet-level-3');
+  assert.equal(slugify('///'), 'deck');
+});
