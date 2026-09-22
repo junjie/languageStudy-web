@@ -69,32 +69,30 @@ export const DEFAULT_SETTINGS = {
    arrays — a hand-picked score that the first correct answer would overwrite
    downwards is a rotten thing to hand someone on their first minute. */
 export const STARTER_DECK = [
+  /* Being got wrong: a full window, one answer right out of eight. */
   {
     front: 'căn cứ',
     back: 'to base (a judgment) on, to rely on as grounds',
     notes: "căn = root, basis; cứ = to rely on, evidence. E.g. \"Không thể căn cứ vào bề ngoài để đánh giá một người.\" = \"You can't judge someone based on appearance alone.\"",
     score: 1,
-    recent: [],
-    last_seen: '2026-07-17',
-    type: 'vocab',
+    recent: [false, false, false, true, false, false, false, false],
+    last_seen: '2026-09-22',
   },
+  /* Going well: six right out of eight, which is what earns a 4. */
   {
     front: 'lời đề nghị',
     back: 'offer, proposal',
     notes: 'lời = words, statement; đề nghị = to propose, suggest. E.g. "Chị ấy từ chối lời đề nghị của anh ấy." = "She declined his offer."',
-    score: 1,
-    recent: [false, false, false, true, false, false],
-    last_seen: '2026-09-22',
-    type: 'vocab',
+    score: 4,
+    recent: [true, true, false, true, true, true, false, true],
+    last_seen: '2026-09-20',
   },
+  /* A bare pair with no history at all: everything below `notes` is filled in
+     for you the first time it is answered. */
   {
     front: 'tiện lợi',
     back: 'convenient, handy (of an object/method)',
     notes: 'tiện = convenient; lợi = benefit. E.g. "Điện thoại thông minh rất tiện lợi." = "Smartphones are very convenient."',
-    score: 1,
-    recent: [false, false],
-    last_seen: '2026-09-22',
-    type: 'vocab',
   },
 ];
 

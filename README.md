@@ -50,13 +50,12 @@ Sentences are banked on disk and replay for free forever.
 ```json
 [
   {
-    "front": "tiện lợi",
-    "back": "convenient, handy (of an object/method)",
-    "notes": "tiện = convenient; lợi = benefit. E.g. \"Điện thoại thông minh rất tiện lợi.\"",
-    "score": 1,
-    "recent": [false, false],
-    "last_seen": "2026-09-22",
-    "type": "vocab"
+    "front": "lời đề nghị",
+    "back": "offer, proposal",
+    "notes": "lời = words; đề nghị = to propose. E.g. \"Chị ấy từ chối lời đề nghị của anh ấy.\"",
+    "score": 4,
+    "recent": [true, true, false, true, true, true, false, true],
+    "last_seen": "2026-09-20"
   }
 ]
 ```
@@ -67,9 +66,10 @@ Sentences are banked on disk and replay for free forever.
 by hand and they will be filled in. A bare `{"front": "…", "back": "…"}` is a
 perfectly good card.
 
-Any other field you add, such as the `type` above, is carried through every save
-untouched. The app ignores what it does not recognise rather than deleting it,
-so you can keep tags, a part of speech, or a page reference alongside the cards.
+Those six are the whole schema; nothing else affects how the app behaves. Any
+other field you add is still carried through every save untouched, though, so
+you can keep a `"type"`, a tag, or a page reference alongside the cards and the
+app will leave them alone rather than deleting what it does not recognise.
 
 ### How scoring works
 
