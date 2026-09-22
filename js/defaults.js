@@ -70,25 +70,31 @@ export const DEFAULT_SETTINGS = {
    downwards is a rotten thing to hand someone on their first minute. */
 export const STARTER_DECK = [
   {
-    front: 'cải tiến',
-    back: 'to improve',
-    notes: 'Quán ăn vừa cải tiến chất lượng dịch vụ.',
+    front: 'căn cứ',
+    back: 'to base (a judgment) on, to rely on as grounds',
+    notes: "căn = root, basis; cứ = to rely on, evidence. E.g. \"Không thể căn cứ vào bề ngoài để đánh giá một người.\" = \"You can't judge someone based on appearance alone.\"",
     score: 1,
-    recent: [false, false, false, true, false, false, false, false],
+    recent: [],
+    last_seen: '2026-07-17',
+    type: 'vocab',
+  },
+  {
+    front: 'lời đề nghị',
+    back: 'offer, proposal',
+    notes: 'lời = words, statement; đề nghị = to propose, suggest. E.g. "Chị ấy từ chối lời đề nghị của anh ấy." = "She declined his offer."',
+    score: 1,
+    recent: [false, false, false, true, false, false],
     last_seen: '2026-09-22',
+    type: 'vocab',
   },
   {
-    front: 'tận hưởng',
-    back: 'to enjoy, to savour',
-    notes: 'Tôi muốn tận hưởng chuyến đi này.',
-    score: 4,
-    recent: [true, true, false, true, true, true, false, true],
-    last_seen: '2026-09-20',
-  },
-  {
-    front: 'rành',
-    back: 'to know well, to be familiar with',
-    notes: 'Tôi không rành đường ở đây.',
+    front: 'tiện lợi',
+    back: 'convenient, handy (of an object/method)',
+    notes: 'tiện = convenient; lợi = benefit. E.g. "Điện thoại thông minh rất tiện lợi." = "Smartphones are very convenient."',
+    score: 1,
+    recent: [false, false],
+    last_seen: '2026-09-22',
+    type: 'vocab',
   },
 ];
 

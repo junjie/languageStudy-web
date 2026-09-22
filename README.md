@@ -50,20 +50,26 @@ Sentences are banked on disk and replay for free forever.
 ```json
 [
   {
-    "front": "cải tiến",
-    "back": "to improve",
-    "notes": "Quán ăn vừa cải tiến chất lượng dịch vụ.",
-    "score": 4,
-    "recent": [true, true, false, true, true, true, false, true],
-    "last_seen": "2026-09-20"
+    "front": "tiện lợi",
+    "back": "convenient, handy (of an object/method)",
+    "notes": "tiện = convenient; lợi = benefit. E.g. \"Điện thoại thông minh rất tiện lợi.\"",
+    "score": 1,
+    "recent": [false, false],
+    "last_seen": "2026-09-22",
+    "type": "vocab"
   }
 ]
 ```
 
 `front` is the word in the language you are learning, `back` is its meaning,
-`notes` is anything you want shown after an answer. The last three are written
-by the practice tabs; leave them out of a card you type by hand and they will be
-filled in. A bare `{"front": "…", "back": "…"}` is a perfectly good card.
+`notes` is anything you want shown after an answer. `score`, `recent` and
+`last_seen` are written by the practice tabs; leave them out of a card you type
+by hand and they will be filled in. A bare `{"front": "…", "back": "…"}` is a
+perfectly good card.
+
+Any other field you add, such as the `type` above, is carried through every save
+untouched. The app ignores what it does not recognise rather than deleting it,
+so you can keep tags, a part of speech, or a page reference alongside the cards.
 
 ### How scoring works
 

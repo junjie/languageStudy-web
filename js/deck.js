@@ -96,8 +96,15 @@ export function isDictatable(card) {
   return core.length >= 1 && core.length <= 6;
 }
 
+const KNOWN_KEYS = new Set(['front', 'back', 'notes', 'score', 'recent', 'last_seen']);
+
 /* Fill in what a hand-written card leaves out, so bare front/back pairs pasted
-   into the textarea work without ceremony. */
+   into the textarea work without ceremony.
+
+   Fields this app does not know about are carried through untouched. The deck
+   file is something people edit by hand, and quietly deleting a `type`, a tag
+   or a source note because it is not in our schema would be a rotten thing for
+   a save to do. */
 export function normalizeCard(raw) {
   const card = {
     front: String((raw && raw.front) || '').trim(),
@@ -109,6 +116,11 @@ export function normalizeCard(raw) {
   card.recent = Array.isArray(raw && raw.recent)
     ? raw.recent.slice(-WINDOW).map(Boolean) : [];
   card.last_seen = (raw && raw.last_seen) || null;
+
+  for (const key of Object.keys(raw || {})) {
+    if (KNOWN_KEYS.has(key) || key === '__proto__') continue;
+    card[key] = raw[key];
+  }
   return card;
 }
 
@@ -178,6 +190,11 @@ export function serializeDeck(cards) {
     o.score = c.score;
     o.recent = c.recent;
     if (c.last_seen) o.last_seen = c.last_seen;
+    /* Anything the user added themselves goes out last, so the keys this app
+       writes stay in a predictable order above it. */
+    for (const key of Object.keys(c)) {
+      if (!KNOWN_KEYS.has(key)) o[key] = c[key];
+    }
     return o;
   });
   /* JSON.stringify puts every array element on its own line, which would give

@@ -91,6 +91,40 @@ test('parse and serialize round-trip', () => {
   assert.equal(serializeDeck(back.cards), text);
 });
 
+test('fields this app does not know about survive a save', () => {
+  const card = normalizeCard({ front: 'a', back: 'b', type: 'vocab', tags: ['x'], source: 'p12' });
+  assert.equal(card.type, 'vocab');
+  assert.deepEqual(card.tags, ['x']);
+
+  const text = serializeDeck([card]);
+  assert.match(text, /"type": "vocab"/);
+  const back = parseDeck(text).cards[0];
+  assert.equal(back.type, 'vocab');
+  assert.equal(back.source, 'p12');
+
+  /* The app's own keys still lead, so a save never reshuffles the file. */
+  assert.deepEqual(Object.keys(back), ['front', 'back', 'score', 'recent', 'last_seen', 'type', 'tags', 'source']);
+});
+
+test('a prototype-polluting key is not carried through', () => {
+  const card = normalizeCard(JSON.parse('{"front":"a","back":"b","__proto__":{"bad":1}}'));
+  assert.equal(card.bad, undefined);
+  assert.equal(({}).bad, undefined);
+});
+
+test('the starter deck is valid and self-consistent', async () => {
+  const { STARTER_DECK } = await import('../js/defaults.js');
+  const parsed = parseDeck(JSON.stringify(STARTER_DECK));
+  assert.equal(parsed.error, undefined);
+  for (const card of parsed.cards) {
+    const { encounters, correct, accuracy } = stats(card);
+    const expected = accuracy <= 0.2 ? 1 : accuracy <= 0.4 ? 2 : accuracy <= 0.6 ? 3 : accuracy <= 0.8 ? 4 : 5;
+    const capped = encounters < WINDOW && expected > 2 ? 2 : expected;
+    assert.equal(card.score, capped,
+      `${card.front} claims score ${card.score} but ${correct}/${encounters} earns ${capped}`);
+  }
+});
+
 test('the history is folded onto one line so the words stay readable', () => {
   const text = serializeDeck([{ front: 'a', back: 'b', score: 1, recent: [true, false, true] }]);
   assert.match(text, /"recent": \[true, false, true\]/);
