@@ -6,7 +6,7 @@ your audio stay on your own computer, in the browser or in a folder you choose,
 and the only thing that ever leaves the machine is a request to Google, signed
 with your own API key. Works in Safari, Firefox, Chrome and Edge.
 
-**[Open the app →](https://nejra0031.github.io/languageStudy-web/)**
+**[Open the app →](https://junjie.github.io/languageStudy-web/)**
 *(live once GitHub Pages is enabled: Settings → Pages → deploy from `main`, root)*
 
 ---
