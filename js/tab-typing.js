@@ -22,6 +22,9 @@ let current = null;
 let shownSide = 'front';
 let answered = false;
 let previous = null;
+/* The card just answered. It becomes "Last card" only once you move on —
+   while it is still on screen, its own feedback already says everything. */
+let justAnswered = null;
 /* The answer just checked, kept so it can still be accepted. */
 let last = null;
 const tally = { total: 0, right: 0, wrong: 0 };
@@ -84,6 +87,9 @@ function renderPool() {
 /* ── the card ────────────────────────────────────────────────────────── */
 
 function next() {
+  /* A skipped card has no answer to look back on, so it never replaces the
+     last one that did. */
+  if (justAnswered) { previous = justAnswered; justAnswered = null; }
   renderPool();
   const p = pool();
   if (!p.length) {
@@ -198,8 +204,7 @@ function check() {
   last = { typed, expected, before: move.before };
   const accept = $('ty-accept');
   if (accept) accept.addEventListener('click', acceptAnswer);
-  previous = { shown: current[shownSide], expected, typed, verdict, notes: current.notes };
-  renderPrevious();
+  justAnswered = { shown: current[shownSide], expected, typed, verdict, notes: current.notes };
   store.cardAnswered();
 }
 
@@ -217,8 +222,7 @@ function reveal() {
   settle(false);
   $('ty-feedback').innerHTML = feedback('revealed', '', expected, move);
   last = null;
-  previous = { shown: current[shownSide], expected, typed: '', verdict: 'revealed', notes: current.notes };
-  renderPrevious();
+  justAnswered = { shown: current[shownSide], expected, typed: '', verdict: 'revealed', notes: current.notes };
   store.cardAnswered();
 }
 
@@ -251,7 +255,7 @@ function acceptAnswer() {
   $('ty-wrong').textContent = tally.wrong;
   $('ty-input').className = 'answer-input is-ok';
   $('ty-feedback').innerHTML = feedback('accepted', last.typed, last.expected, move);
-  previous.verdict = 'exact';
+  justAnswered.verdict = 'exact';
   last = null;
   $('ty-next').focus();
   store.cardAnswered();
@@ -281,9 +285,7 @@ function feedback(verdict, typed, expected, move) {
     head = `<div class="verdict is-ok">Correct${moved}</div>`;
   } else if (verdict === 'accent') {
     /* The word was there. Show precisely which marks went astray. */
-    const marked = accentMarks(typed, expected)
-      .map(({ ch, bad }) => (bad ? `<span class="ch-bad">${escapeHtml(ch)}</span>` : escapeHtml(ch)))
-      .join('');
+    const marked = markAccents(typed, expected);
     head = `<div class="verdict is-warn">Right word, wrong accents
       <span class="reveal">${escapeHtml(expected)}</span>${moved}</div>
       <div class="typed-back" style="margin-top:6px">you typed ${marked}</div>${alts}${acceptBtn}`;
@@ -298,12 +300,23 @@ function feedback(verdict, typed, expected, move) {
   return head + notes;
 }
 
+function markAccents(typed, expected) {
+  return accentMarks(typed, expected)
+    .map(({ ch, bad }) => (bad ? `<span class="ch-bad">${escapeHtml(ch)}</span>` : escapeHtml(ch)))
+    .join('');
+}
+
 function renderPrevious() {
   const el = $('ty-prev');
   if (!previous) { el.innerHTML = ''; return; }
-  const cls = previous.verdict === 'exact' ? 'is-ok' : 'is-bad';
-  const typed = previous.verdict === 'exact' || previous.verdict === 'revealed' ? '' :
-    `<div class="typed-back" style="margin-top:4px">you typed <s>${escapeHtml(previous.typed)}</s></div>`;
+  const { verdict } = previous;
+  const cls = verdict === 'exact' ? 'is-ok' : verdict === 'accent' ? 'is-warn' : 'is-bad';
+  /* The same marking as the feedback it came from: one wrong accent is one
+     highlighted letter, not a struck-out answer. */
+  const shownTyped = verdict === 'accent' ? markAccents(previous.typed, previous.expected)
+    : `<s>${escapeHtml(previous.typed)}</s>`;
+  const typed = verdict === 'exact' || verdict === 'revealed' ? '' :
+    `<div class="typed-back" style="margin-top:4px">you typed ${shownTyped}</div>`;
   el.innerHTML = `
     <div class="prev ${cls}">
       <h3>Last card</h3>

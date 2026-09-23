@@ -501,6 +501,7 @@ textarea { resize: vertical; font: 13px/1.6 var(--mono); }
 }
 .prev.is-ok h3::before { background: var(--ok); }
 .prev.is-bad h3::before { background: var(--bad); }
+.prev.is-warn h3::before { background: var(--warn); }
 
 .tally {
   display: flex;
