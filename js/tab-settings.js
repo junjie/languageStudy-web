@@ -11,6 +11,7 @@ import { fillTemplate, sentenceVars, formatWait, GeminiError, QuotaError } from 
 import { serializeDeck } from './deck.js';
 import { serializeBundle, parseBundle, describeBundle, bundleFilename } from './bundle.js';
 import { makeZip, readZip } from './zip.js';
+import { backupDue, lastPractice, firstPractice, agoLabel, DAYS } from './backup-due.js';
 import * as speech from './speech.js';
 import * as azure from './azure-tts.js';
 
@@ -46,6 +47,8 @@ export function init() {
   store.subscribe('folder', renderStore);
   store.subscribe('quota', renderQuota);
   store.subscribe('deck', renderStore);
+  store.subscribe('settings', renderBackupDue);
+  wireBackupDue();
   render();
   renderStore();
   renderQuota();
@@ -102,6 +105,7 @@ function wireStore() {
     const name = bundleFilename();
     storage.download(name, serializeBundle(bundle));
     setStoreStatus(`Exported ${describeBundle(readBack(bundle))} to ${name}.`, 'is-ok');
+    backedUp();
   });
 
   $('backup-download').addEventListener('click', async () => {
@@ -118,6 +122,7 @@ function wireStore() {
     const zip = await makeZip(files);
     storage.download(name, zip);
     setStoreStatus(`Backed up ${plural(files.length, 'file')} (${size(zip.size)}) to ${name}.`, 'is-ok');
+    backedUp();
   });
 
   $('backup-restore').addEventListener('click', () => {
@@ -287,6 +292,7 @@ export async function restoreStore() {
 }
 
 function renderStore() {
+  renderBackupDue();
   const kind = storage.backend();
   const where = storage.label();
   const decks = store.state.deckNames.length;
@@ -308,7 +314,8 @@ function renderStore() {
     const risk = storage.isPersisted()
       ? 'Clearing site data for this page deletes it.'
       : 'The browser has not promised to keep it: clearing site data, or weeks without opening this page, deletes it.';
-    setStoreStatus(`Saving in this browser — ${plural(decks, 'deck')}, ${plural(banked, 'banked sentence')}. ${risk}`, 'is-ok');
+    const last = backupState();
+    setStoreStatus(`Saving in this browser — ${plural(decks, 'deck')}, ${plural(banked, 'banked sentence')}. ${risk} Last backup: ${last.never ? 'never' : agoLabel(last.days)}.`, last.due ? 'is-warn' : 'is-ok');
   } else if (storage.lostFolder()) {
     /* Different from never having chosen one: the data is still in that
        folder, and the way back is to point at it again. */
@@ -317,6 +324,53 @@ function renderStore() {
     setStoreStatus('Nothing is being saved. The app still works, but a reload loses it.', '');
   }
   updateBar();
+}
+
+/* ── the backup reminder ─────────────────────────────────────────────── */
+
+function backupState() {
+  const s = store.state.settings;
+  return backupDue({
+    kind: storage.backend(),
+    persisted: storage.isPersisted(),
+    lastBackup: s.lastBackup,
+    since: s.backupSince,
+    snoozedUntil: s.backupSnoozedUntil,
+    practiced: lastPractice(Object.values(store.state.decks).flat(), store.state.manifest),
+  });
+}
+
+function backedUp() {
+  store.saveSettings({ lastBackup: new Date().toISOString(), backupSnoozedUntil: '' });
+}
+
+function wireBackupDue() {
+  /* The same backup as the button in Your data, from wherever the banner is. */
+  $('backup-due-save').addEventListener('click', () => $('backup-download').click());
+  $('backup-due-later').addEventListener('click', () => {
+    store.saveSettings({ backupSnoozedUntil: new Date(Date.now() + DAYS.snooze * 86400000).toISOString() });
+  });
+}
+
+function renderBackupDue() {
+  /* Counting starts from the earliest practice the decks show — so someone
+     who has used the app for months without a backup hears about it now —
+     or from today for a new user, who is not told they have never backed up
+     before they have anything to back up. */
+  if (storage.backend() && !store.state.settings.backupSince) {
+    const since = firstPractice(Object.values(store.state.decks).flat()) || new Date().toISOString();
+    store.saveSettings({ backupSince: since });
+    return;
+  }
+  const state = backupState();
+  $('backup-due').hidden = !state.due;
+  if (!state.due) return;
+  const risk = storage.isPersisted()
+    ? 'Clearing this site’s data would delete everything saved here.'
+    : 'Safari deletes a site’s saved data after a week of using Safari without opening the site, and any browser can clear it.';
+  $('backup-due-text').textContent = (state.never
+    ? `You have practised for ${state.days} days without a backup. `
+    : `Your last backup was ${agoLabel(state.days)}, and you have practised since. `) + risk;
 }
 
 function setStoreStatus(text, cls) {

@@ -332,6 +332,9 @@ textarea { resize: vertical; font: 13px/1.6 var(--mono); }
 }
 .banner.is-bad { border-color: var(--bad); background: var(--bad-soft); color: var(--fg); }
 .banner.is-warn { border-color: var(--warn); background: var(--warn-soft); color: var(--fg); }
+/* The backup reminder sits above the tabs' panels, message then buttons. */
+.backup-due { padding-top: 16px; padding-bottom: 0; }
+.backup-due .banner { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; justify-content: space-between; }
 
 /* ── score squares: the practice window, drawn literally ──────── */
 
