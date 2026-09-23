@@ -56,7 +56,9 @@ function voicesChanged() {
    voice names, so one setting says which voice reads. */
 
 export const AZURE_PREFIX = 'azure:';
-const azureState = { region: azure.DEFAULT_REGION, code: '', voices: [], problem: '' };
+/* saved: how many clips voice/ holds — shown in Settings, so it is visible
+   that a word already heard costs nothing the next time. */
+const azureState = { region: azure.DEFAULT_REGION, code: '', voices: [], problem: '', saved: 0 };
 
 export function azureStatus() {
   return { ...azureState, key: !!azure.getKey() };
@@ -76,6 +78,7 @@ export async function loadAzure(region, code) {
   }
   try {
     azureState.voices = await azure.listVoices({ region: azureState.region, key, code });
+    if (clipStore && clipStore.count) azureState.saved = await clipStore.count().catch(() => azureState.saved);
   } catch (e) {
     azureState.voices = [];
     azureState.problem = e.message;
@@ -226,7 +229,11 @@ async function clipFor(voice, text) {
   const blob = await azure.synthesize({
     region: azureState.region, key: azure.getKey(), voice: voice.name, locale: voice.locale, text,
   });
-  if (clipStore) clipStore.write(name, blob).catch((e) => console.error('Could not save a voice clip', e));
+  if (clipStore) {
+    clipStore.write(name, blob)
+      .then((ok) => { if (ok) { azureState.saved++; voicesChanged(); } })
+      .catch((e) => console.error('Could not save a voice clip', e));
+  }
   return blob;
 }
 

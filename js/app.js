@@ -67,7 +67,7 @@ function wireTheme() {
 async function boot() {
   store.bootLocal();
   /* Azure clips are saved into the data directory, like Dictation's audio. */
-  speech.setClipStore({ read: store.readVoiceClip, write: store.writeVoiceClip });
+  speech.setClipStore({ read: store.readVoiceClip, write: store.writeVoiceClip, count: store.countVoiceClips });
   wireTabs();
   wireTheme();
 

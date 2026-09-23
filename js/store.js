@@ -115,6 +115,10 @@ export async function writeVoiceClip(name, blob) {
   return storage.writeBlob(`voice/${name}`, blob);
 }
 
+export async function countVoiceClips() {
+  return (await storage.listIn('voice')).filter((n) => n.endsWith('.mp3')).length;
+}
+
 /* Boot is done: the stored decks, if any, are in place. Called once. */
 export function markReady() {
   state.ready = true;

@@ -950,7 +950,7 @@ function renderSpeech() {
     el.textContent += `  ·  ${az.problem}`;
     el.className = 'status is-warn';
   } else if (az.key && az.voices.length) {
-    el.textContent += `  ·  Azure: ${az.voices.length} ${s.targetLanguage} voice${az.voices.length === 1 ? '' : 's'} (${az.voices.map((v) => v.label).join(', ')}).`;
+    el.textContent += `  ·  Azure: ${az.voices.length} ${s.targetLanguage} voice${az.voices.length === 1 ? '' : 's'} (${az.voices.map((v) => v.label).join(', ')}) · ${az.saved} word${az.saved === 1 ? '' : 's'} saved, played without calling Azure again.`;
   } else if (az.key && az.code) {
     el.textContent += `  ·  Azure has no ${s.targetLanguage} voice.`;
   }
