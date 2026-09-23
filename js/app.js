@@ -1,6 +1,7 @@
 /* Boot and tab switching. */
 
 import * as store from './store.js';
+import * as speech from './speech.js';
 import * as settings from './tab-settings.js';
 import * as flashcards from './tab-flashcards.js';
 import * as typing from './tab-typing.js';
@@ -65,6 +66,8 @@ function wireTheme() {
 
 async function boot() {
   store.bootLocal();
+  /* Azure clips are saved into the data directory, like Dictation's audio. */
+  speech.setClipStore({ read: store.readVoiceClip, write: store.writeVoiceClip, count: store.countVoiceClips });
   wireTabs();
   wireTheme();
 
@@ -74,8 +77,14 @@ async function boot() {
   try { start = localStorage.getItem('lsw.tab') || 'settings'; } catch (e) { /* ignore */ }
   show(TABS[start] ? start : 'settings');
 
-  /* Last, because it may adopt a store and re-render everything. */
-  await settings.restoreStore();
+  /* Last, because it may adopt a store and re-render everything. Ready
+     either way: a store that could not be opened still leaves the app
+     running on what it has. */
+  try {
+    await settings.restoreStore();
+  } finally {
+    store.markReady();
+  }
 }
 
 boot();

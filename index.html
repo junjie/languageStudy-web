@@ -200,14 +200,27 @@
   </div>
 
   <div class="block">
-    <div class="block-head"><h2>Read-aloud voice</h2><span class="hint">Typing · built into this device</span></div>
+    <div class="block-head"><h2>Read-aloud voice</h2><span class="hint">Typing · this device, or Azure</span></div>
     <div class="block-body">
       <p class="note">The voice that reads words aloud in Typing practice. These come with your operating system, cost nothing and work offline — they are nothing to do with Gemini or your API key. Only voices for your target language are listed; to add more on a Mac, go to System Settings → Accessibility → Spoken Content → System voice → Manage Voices, then reload this page.</p>
       <div class="row">
         <label class="field" style="flex:1 1 260px"><span>Voice</span>
           <select id="set-speech-voice"></select>
         </label>
+        <label class="field" style="flex:1 1 200px"><span>Speed <b id="set-speech-rate-val"></b></span>
+          <input type="range" id="set-speech-rate" class="rate">
+        </label>
         <button class="btn" id="speech-sample" style="align-self:flex-end">Play sample</button>
+      </div>
+      <p class="note"><strong>Azure neural voices</strong> (optional) are Microsoft's natural-sounding voices, the same on every device, read with your own key from an Azure Speech resource. Its free tier covers 500,000 characters a month, and each word is fetched only once: the clip is saved with your data and played from there after that. Like the Gemini key, the Azure key is kept in this browser only. The README says how to make one.</p>
+      <div class="row">
+        <label class="field" style="flex:2 1 240px"><span>Azure Speech key</span>
+          <input type="password" id="set-azure-key" placeholder="KEY 1 from Keys and Endpoint" autocomplete="off" spellcheck="false">
+        </label>
+        <label class="field" style="flex:1 1 140px"><span>Region</span>
+          <input type="text" id="set-azure-region" placeholder="southeastasia" autocomplete="off" spellcheck="false">
+        </label>
+        <button class="btn" id="azure-load" style="align-self:flex-end">Load voices</button>
       </div>
     </div>
     <div class="status" id="speech-status"></div>
@@ -290,8 +303,22 @@
           <button data-scope="accents" aria-pressed="false" title="Words you last got right but with the wrong accents. A word leaves this list once you type it exactly.">Accents</button>
         </div>
         <span class="spacer"></span>
-        <div class="seg" role="group" aria-label="Speech">
-          <button id="ty-speak" class="icon-btn" aria-pressed="true" aria-label="Read aloud" title="Read aloud"></button>
+        <div class="speech-ctl">
+          <div class="seg" role="group" aria-label="Speech">
+            <button id="ty-speak" class="icon-btn" aria-pressed="true" aria-label="Read aloud" title="Read aloud"></button>
+            <button id="ty-speech-opts" class="icon-btn" aria-expanded="false" aria-controls="ty-speech-panel" aria-label="Voice and speed" title="Voice and speed">
+              <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                <path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>
+            </button>
+          </div>
+          <div class="speech-panel" id="ty-speech-panel" role="dialog" aria-label="Voice and speed" hidden>
+            <label class="field"><span>Voice</span><select id="ty-voice"></select></label>
+            <label class="field"><span>Speed <b id="ty-rate-val"></b></span><input type="range" id="ty-rate" class="rate"></label>
+            <div class="row">
+              <button class="btn btn--sm" id="ty-speech-test">Play sample</button>
+              <span class="note">Also in Settings.</span>
+            </div>
+          </div>
         </div>
         <div class="seg" id="ty-dir" role="group" aria-label="Which side to show">
           <button data-dir="front-to-back" aria-pressed="false">Front → back</button>
