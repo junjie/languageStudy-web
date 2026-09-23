@@ -169,6 +169,8 @@ export const DEFAULT_SETTINGS = {
   typingSpeak: true,
   /* Name of the browser voice to read with; '' picks the best installed. */
   speechVoice: '',
+  /* Its speed: 1 is the voice's own pace. See speech.js for the range. */
+  speechRate: 1,
   /* Which decks the practice tabs may draw from. Empty means "whichever deck
      is open" — the honest answer on a fresh install, where there is only one.
      The Flashcards tab keeps this list and never lets it empty out. */

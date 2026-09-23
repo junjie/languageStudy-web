@@ -597,6 +597,24 @@ textarea { resize: vertical; font: 13px/1.6 var(--mono); }
 }
 .icon-btn { display: inline-flex; align-items: center; justify-content: center; }
 .icon-btn svg { display: block; width: 16px; height: 16px; }
+
+/* Voice and speed, dropping down under the speaker button. */
+.speech-ctl { position: relative; }
+.speech-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 20;
+  width: min(300px, calc(100vw - 32px));
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+.speech-panel[hidden] { display: none; }
+.rate { width: 100%; accent-color: var(--accent); }
 /* A hidden word. Always the same size, whatever is under it, so neither its
    length nor how many words it has can be read off the bar. */
 .redacted {

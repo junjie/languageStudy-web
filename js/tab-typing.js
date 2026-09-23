@@ -67,6 +67,7 @@ export function init() {
   });
   store.subscribe('settings', renderSpeak);
   speech.onVoicesChanged(renderSpeak);
+  wireSpeechPanel();
   renderSpeak();
 
   /* The card is redrawn for every draw and its feedback for every answer, so
@@ -263,7 +264,8 @@ function say(asked = false) {
   /* Cards are drawn in the background too — on load, or when the ticked decks
      change from another tab. Only speak to someone looking at this one. */
   if ($('panel-typing').hidden) return;
-  speech.speak(current.front.replace(/\([^)]*\)/g, ' '), targetCode(), { voice: store.state.settings.speechVoice });
+  const s = store.state.settings;
+  speech.speak(current.front.replace(/\([^)]*\)/g, ' '), targetCode(), { voice: s.speechVoice, rate: s.speechRate });
 }
 
 /* A speaker with sound waves when on, struck through when off. Drawn in
@@ -273,6 +275,44 @@ const SPEAKER = (on) => `<svg viewBox="0 0 24 24" width="16" height="16" aria-hi
   <path d="M11 5 6 9H3v6h3l5 4z" fill="currentColor"/>
   ${on ? '<path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M18.5 5.5a9 9 0 0 1 0 13"/>'
     : '<path d="m16 9 6 6"/><path d="m22 9-6 6"/>'}</svg>`;
+
+/* Voice and speed, next to the speaker — the same two settings as in the
+   Settings tab, where the voice first lived, brought to where the listening
+   happens. A voice that is too fast is found out mid-practice, not while
+   looking at Settings. */
+function wireSpeechPanel() {
+  const btn = $('ty-speech-opts');
+  const panel = $('ty-speech-panel');
+  const rate = $('ty-rate');
+  Object.assign(rate, { min: speech.RATE.min, max: speech.RATE.max, step: speech.RATE.step });
+
+  const open = (on) => {
+    panel.hidden = !on;
+    btn.setAttribute('aria-expanded', String(on));
+    btn.setAttribute('aria-pressed', String(on));
+    if (on) $('ty-voice').focus();
+  };
+  btn.addEventListener('click', () => open(panel.hidden));
+  /* Close on a click anywhere else, or Esc — it is a popover, not a page. */
+  document.addEventListener('click', (e) => {
+    if (!panel.hidden && !e.target.closest('.speech-ctl')) open(false);
+  });
+  panel.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') { e.preventDefault(); open(false); btn.focus(); }
+  });
+
+  $('ty-voice').addEventListener('change', (e) => store.saveSettings({ speechVoice: e.target.value }));
+  rate.addEventListener('input', () => { $('ty-rate-val').textContent = speech.rateLabel(rate.value); });
+  rate.addEventListener('change', () => store.saveSettings({ speechRate: speech.clampRate(rate.value) }));
+  /* The sample is the card on screen, if there is one — but only once its
+     word is showing, so the panel cannot be used to peek at a hidden answer. */
+  $('ty-speech-test').addEventListener('click', () => {
+    const s = store.state.settings;
+    const visible = current && (answered || shownSide === 'front');
+    const text = visible ? current.front.replace(/\([^)]*\)/g, ' ') : 'Xin chào';
+    speech.speak(text, targetCode(), { voice: s.speechVoice, rate: s.speechRate });
+  });
+}
 
 function renderSpeak() {
   const btn = $('ty-speak');
@@ -286,6 +326,15 @@ function renderSpeak() {
     ? `Read aloud: ${on ? 'on' : 'off'}. When the word is the prompt it is hidden, so you listen first — Show word uncovers it.`
     : `No ${lang} voice is installed. On a Mac: System Settings → Accessibility → Spoken Content → System voice → Manage Voices.`;
   for (const hear of document.querySelectorAll('#ty-card [data-say]')) hear.disabled = !voice;
+
+  /* Keep the panel in step with Settings, which can change the same two. */
+  const s = store.state.settings;
+  $('ty-speech-opts').disabled = !voice;
+  $('ty-voice').innerHTML = speech.voiceOptions(targetCode(), s.speechVoice || '');
+  $('ty-voice').value = s.speechVoice || '';
+  const rate = $('ty-rate');
+  if (document.activeElement !== rate) rate.value = speech.clampRate(s.speechRate);
+  $('ty-rate-val').textContent = speech.rateLabel(rate.value);
 }
 
 /* ── checking ────────────────────────────────────────────────────────── */

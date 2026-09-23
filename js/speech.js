@@ -82,6 +82,37 @@ export function speak(text, code, { rate = 1, voice: name = '' } = {}) {
   return true;
 }
 
+/* Speaking speed. 1 is the voice's own pace, which on some systems —
+   Windows voices in Chrome and Edge especially — is brisk for a learner. */
+export const RATE = { min: 0.5, max: 1.5, step: 0.05, default: 1 };
+
+export function clampRate(rate) {
+  const r = Number(rate);
+  if (!Number.isFinite(r)) return RATE.default;
+  const stepped = Math.round(r / RATE.step) * RATE.step;
+  /* Two decimals, so 0.85 is 0.85 and not 0.8500000000000001. */
+  return Math.min(RATE.max, Math.max(RATE.min, Number(stepped.toFixed(2))));
+}
+
+export function rateLabel(rate) {
+  return `${Number(clampRate(rate).toFixed(2))}×`;
+}
+
+/* The <option>s for a voice picker: "Best available" first, then every
+   installed voice for the language, and the chosen one kept on the list
+   even when this device lacks it, so picking on one machine is not undone
+   by opening the app on another. */
+export function voiceOptions(code, chosen = '') {
+  const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+  const list = voicesFor(code);
+  const missing = chosen && !list.some((v) => v.name === chosen);
+  return [
+    `<option value="">Best available${list[0] ? ` (${esc(list[0].name)})` : ''}</option>`,
+    ...list.map((v) => `<option value="${esc(v.name)}">${esc(v.name)} · ${esc(v.lang)}${v.localService ? '' : ' · online'}</option>`),
+    ...(missing ? [`<option value="${esc(chosen)}">${esc(chosen)} · not installed here</option>`] : []),
+  ].join('');
+}
+
 export function stop() {
   if (synth) synth.cancel();
 }

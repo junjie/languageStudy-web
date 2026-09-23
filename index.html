@@ -207,6 +207,9 @@
         <label class="field" style="flex:1 1 260px"><span>Voice</span>
           <select id="set-speech-voice"></select>
         </label>
+        <label class="field" style="flex:1 1 200px"><span>Speed <b id="set-speech-rate-val"></b></span>
+          <input type="range" id="set-speech-rate" class="rate">
+        </label>
         <button class="btn" id="speech-sample" style="align-self:flex-end">Play sample</button>
       </div>
     </div>
@@ -290,8 +293,22 @@
           <button data-scope="accents" aria-pressed="false" title="Words you last got right but with the wrong accents. A word leaves this list once you type it exactly.">Accents</button>
         </div>
         <span class="spacer"></span>
-        <div class="seg" role="group" aria-label="Speech">
-          <button id="ty-speak" class="icon-btn" aria-pressed="true" aria-label="Read aloud" title="Read aloud"></button>
+        <div class="speech-ctl">
+          <div class="seg" role="group" aria-label="Speech">
+            <button id="ty-speak" class="icon-btn" aria-pressed="true" aria-label="Read aloud" title="Read aloud"></button>
+            <button id="ty-speech-opts" class="icon-btn" aria-expanded="false" aria-controls="ty-speech-panel" aria-label="Voice and speed" title="Voice and speed">
+              <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                <path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>
+            </button>
+          </div>
+          <div class="speech-panel" id="ty-speech-panel" role="dialog" aria-label="Voice and speed" hidden>
+            <label class="field"><span>Voice</span><select id="ty-voice"></select></label>
+            <label class="field"><span>Speed <b id="ty-rate-val"></b></span><input type="range" id="ty-rate" class="rate"></label>
+            <div class="row">
+              <button class="btn btn--sm" id="ty-speech-test">Play sample</button>
+              <span class="note">Also in Settings.</span>
+            </div>
+          </div>
         </div>
         <div class="seg" id="ty-dir" role="group" aria-label="Which side to show">
           <button data-dir="front-to-back" aria-pressed="false">Front → back</button>

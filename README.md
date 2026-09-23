@@ -46,16 +46,18 @@ words were right, which had the wrong accent, which are not in the answer and
 which are missing.
 
 The word can also be **read aloud** by your device's own voice, free and
-offline. With that on, a word that is the prompt is hidden behind a bar: you
-hear it and type the meaning, and *Show word* uncovers it if you need it. With
-nothing typed, the button offers *Show answer*, which gives up on a card and
-counts it as a miss; type anything and it becomes *Check*. Enter only ever
-checks, so a stray one cannot give a card up. Once a card has been answered you
-can edit its **notes** in place, and a meaning the app marked wrong can be
-**accepted** — which counts it right and saves it on the card as another way of
-saying the same thing. A word you typed in the language you are learning can be
-**marked right** instead: it counts this once and nothing is saved, so the card
-keeps the form it was written in.
+offline; the button beside the speaker picks the voice and the speed, which
+helps where the voice is brisk, as Windows voices often are. With that on, a
+word that is the prompt is hidden behind a bar: you hear it and type the
+meaning, and *Show word* uncovers it if you need it. With nothing typed, the
+button offers *Show answer*, which gives up on a card and counts it as a miss;
+type anything and it becomes *Check*. Enter only ever checks, so a stray one
+cannot give a card up. Once a card has been answered you can edit its **notes**
+in place, and a meaning the app marked wrong can be **accepted** — which counts
+it right and saves it on the card as another way of saying the same thing. A
+word you typed in the language you are learning can be **marked right** instead:
+it counts this once and nothing is saved, so the card keeps the form it was
+written in.
 
 **Dictation** — a sentence is written around two or three of your weakest cards,
 spoken aloud, and diffed word by word against what you type. Needs an API key.
