@@ -56,3 +56,14 @@ test('listVoices reads the voice list with the key', async () => {
   assert.equal(url, 'https://southeastasia.tts.speech.microsoft.com/cognitiveservices/voices/list');
   assert.equal(vi.length, 2);
 });
+
+test('a clip is named by its voice and a fingerprint, the same every time', async () => {
+  const { clipName } = await import('../js/azure-tts.js');
+  const { dataPath } = await import('../js/storage.js');
+  const a = await clipName('vi-VN-HoaiMyNeural', 'biệt thự');
+  assert.match(a, /^vi-VN-HoaiMyNeural_[0-9a-f]{20}\.mp3$/);
+  assert.equal(await clipName('vi-VN-HoaiMyNeural', 'biệt thự'), a);
+  assert.notEqual(await clipName('vi-VN-NamMinhNeural', 'biệt thự'), a);
+  assert.notEqual(await clipName('vi-VN-HoaiMyNeural', 'biệt thụ'), a);
+  assert.equal(dataPath(`voice/${a}`), `voice/${a}`, 'a saved clip is part of the backup layout');
+});

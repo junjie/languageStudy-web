@@ -90,6 +90,16 @@ export function filterVoices(all, code) {
     .sort((a, b) => a.label.localeCompare(b.label));
 }
 
+/* The file a clip is saved under: the voice, then a fingerprint of the voice
+   and the text. The same word in the same voice always lands on the same
+   name, so a saved clip is found again without an index. */
+export async function clipName(voice, text) {
+  const bytes = new TextEncoder().encode(`${voice}\n${text}`);
+  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes));
+  const hex = [...digest.slice(0, 10)].map((b) => b.toString(16).padStart(2, '0')).join('');
+  return `${voice}_${hex}.mp3`;
+}
+
 /* One piece of text, as an mp3 Blob. */
 export async function synthesize({ region, key, voice, locale, text, fetchImpl = fetch }) {
   if (!key) throw new AzureError('No Azure key.');

@@ -1,6 +1,7 @@
 /* Boot and tab switching. */
 
 import * as store from './store.js';
+import * as speech from './speech.js';
 import * as settings from './tab-settings.js';
 import * as flashcards from './tab-flashcards.js';
 import * as typing from './tab-typing.js';
@@ -65,6 +66,8 @@ function wireTheme() {
 
 async function boot() {
   store.bootLocal();
+  /* Azure clips are saved into the data directory, like Dictation's audio. */
+  speech.setClipStore({ read: store.readVoiceClip, write: store.writeVoiceClip });
   wireTabs();
   wireTheme();
 

@@ -264,6 +264,7 @@ audio/<id>.txt         its transcript, translation, target words,
 shadowing/manifest.json   the index of shadowing sets
 shadowing/<id>.json       one set: its lines and the feedback on them
 shadowing/<id>_<n>.webm   your own voice, one file per line
+voice/<voice>_<hash>.mp3  a word read by an Azure voice, saved so it is fetched once
 ```
 
 The shadowing takes are named from the recorder's own container, so they are
@@ -383,9 +384,10 @@ pricing tier and a region near you (Southeast Asia, say). Once it is
 deployed, **Keys and Endpoint** shows *KEY 1* and the *Location/Region*;
 paste both into **Settings → Read-aloud voice**.
 
-The free tier covers 500,000 characters a month. Each word is fetched once per
-session and replayed from memory after that, so a large deck goes through many
-times before that runs out. Like the Gemini key, the Azure key is kept in this
+The free tier covers 500,000 characters a month. Each word is fetched from
+Azure once, ever: the clip is saved in `voice/` beside the rest of your data,
+goes into a backup zip with it, and is played from there next time — so a deck
+costs its characters once, not once per practice. Like the Gemini key, the Azure key is kept in this
 browser's `localStorage` and never in the data folder, a backup or a bundle.
 If Azure refuses a request — a wrong key, the allowance spent, no network —
 the device voice reads instead and Settings says why.
