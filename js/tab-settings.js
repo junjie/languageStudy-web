@@ -990,7 +990,9 @@ function renderSpeech() {
     el.className = 'status is-warn';
   } else if (missing) {
     el.textContent = chosen.startsWith(speech.AZURE_PREFIX)
-      ? `${chosen.slice(speech.AZURE_PREFIX.length)} is ${speech.azureStatus().key ? 'not available right now' : 'an Azure voice and needs your key'}, so the device voice reads instead.`
+      ? (speech.azureStatus().key
+        ? `${chosen.slice(speech.AZURE_PREFIX.length)} cannot be reached right now: words already saved still play in it, and new ones are read by the device voice.`
+        : `${chosen.slice(speech.AZURE_PREFIX.length)} is an Azure voice and needs your key, so the device voice reads instead.`)
       : `"${chosen}" is not installed on this device, so ${list[0] ? list[0].name : 'the best available'} is used instead.`;
     el.className = 'status is-warn';
   } else {
