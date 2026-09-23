@@ -159,6 +159,7 @@ function speakDevice(text, code, rate, name) {
   u.lang = voice.lang;
   u.rate = rate;
   synth.speak(u);
+  spoken({ voice: voice.name.replace(/\s*\(.*\)\s*$/, ''), source: 'device' });
   return true;
 }
 
@@ -166,6 +167,21 @@ function speakDevice(text, code, rate, name) {
    store's voice/ directory. speech.js does not know about storage itself. */
 let clipStore = null;
 export function setClipStore(store) { clipStore = store; }
+
+/* Who read the last text, and from where, for a note beside Listen again:
+   { voice, source: 'saved' | 'fetched' | 'device', blocked }. Saying it is
+   what makes the saving visible — "saved clip" is a word that cost nothing. */
+const spokenListeners = new Set();
+export function onSpoken(fn) { spokenListeners.add(fn); }
+function spoken(info) {
+  for (const fn of spokenListeners) { try { fn(info); } catch (e) { console.error(e); } }
+}
+
+/* "vi-VN-NamMinhNeural" → "NamMinh". */
+export function shortVoiceName(name) {
+  const m = /^[a-z]{2,3}-[A-Za-z]{2,4}-(.+?)(Neural)?$/.exec(String(name || ''));
+  return m ? m[1] : String(name || '');
+}
 
 /* Each text is fetched from Azure once, ever: after that it comes from
    memory this session and from the saved clip in later ones, so Listen
@@ -179,20 +195,31 @@ async function speakAzure(text, voice, rate, code) {
   const ticket = ++latest;
   const cacheKey = `${voice.name}\n${text}`;
   try {
+    let fresh = false;
     if (!azureCache.has(cacheKey)) {
-      const fetching = clipFor(voice, text).then((blob) => URL.createObjectURL(blob));
+      const fetching = clipFor(voice, text).then(({ blob, source }) => ({ url: URL.createObjectURL(blob), source }));
       azureCache.set(cacheKey, fetching);
       fetching.catch(() => azureCache.delete(cacheKey));
+      fresh = true;
     }
-    const url = await azureCache.get(cacheKey);
+    const { url, source } = await azureCache.get(cacheKey);
     /* Something else was asked for while this one was on its way. */
     if (ticket !== latest) return;
+    const info = { voice: shortVoiceName(voice.name), source: fresh ? source : 'saved' };
     player = new Audio(url);
     player.playbackRate = rate;
-    await player.play();
+    try {
+      await player.play();
+    } catch (e) {
+      /* Autoplay refused — Safari will not play audio with sound before the
+         page has been clicked or typed in, as after a reload. Said out loud,
+         so Listen again is pressed rather than the card left silent. */
+      if (e && e.name === 'NotAllowedError') { spoken({ ...info, blocked: true }); return; }
+      throw e;
+    }
     azureState.problem = '';
+    spoken(info);
   } catch (e) {
-    if (e && e.name === 'NotAllowedError') return;   // autoplay refused: Listen again will play it
     /* Fall back to the device's voice, and say why in Settings. */
     azureState.problem = e.message || String(e);
     voicesChanged();
@@ -240,7 +267,7 @@ export function voiceOptions(code, chosen = '') {
 async function clipFor(voice, text) {
   const name = await azure.clipName(voice.name, text);
   const saved = clipStore ? await clipStore.read(name).catch(() => null) : null;
-  if (saved && saved.size) return saved;
+  if (saved && saved.size) return { blob: saved, source: 'saved' };
   const blob = await azure.synthesize({
     region: azureState.region, key: azure.getKey(), voice: voice.name, locale: voice.locale, text,
   });
@@ -249,7 +276,7 @@ async function clipFor(voice, text) {
       .then((ok) => { if (ok) { azureState.saved++; voicesChanged(); } })
       .catch((e) => console.error('Could not save a voice clip', e));
   }
-  return blob;
+  return { blob, source: 'fetched' };
 }
 
 /* Silences whatever is speaking, and anything still being fetched. */
