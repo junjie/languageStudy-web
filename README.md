@@ -46,10 +46,12 @@ counts as a miss); **Skip** moves on without counting anything. Once a card is
 answered or revealed, **Edit notes** (or **Add notes**) writes straight into
 the card's `notes` in the deck.
 
-With **Read aloud** on, the word is spoken — straight away when it is the
-prompt, after you answer when it is the answer. **Hear it** replays it. The
-voices are the ones built into your operating system, so this is free and
-works offline; pick one in **Settings → Read-aloud voice**.
+With **Read aloud** on (the speaker button), the word is spoken — straight away
+when it is the prompt, after you answer when it is the answer. As a prompt it
+is hidden while it plays, so you listen first; **Show word** uncovers it, and
+answering always does. **Listen again** replays it. The voices are the ones built
+into your operating system, so this is free and works offline; pick one in
+**Settings → Read-aloud voice**.
 
 **Dictation** — a sentence is written around two or three of your weakest cards,
 spoken aloud, and diffed word by word against what you type. Needs an API key.

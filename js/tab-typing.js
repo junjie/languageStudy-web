@@ -47,7 +47,8 @@ export function init() {
   $('ty-speak').addEventListener('click', () => {
     const on = !store.state.settings.typingSpeak;
     store.saveSettings({ typingSpeak: on });
-    if (!on) speech.stop();
+    /* No sound now, so a hidden word has to be shown. */
+    if (!on) { speech.stop(); showWord(); }
     renderSpeak();
   });
   store.subscribe('settings', renderSpeak);
@@ -59,6 +60,7 @@ export function init() {
   $('ty-card').addEventListener('click', (e) => {
     const hit = (sel) => e.target.closest(sel);
     if (hit('[data-say]')) say(true);
+    else if (hit('#ty-show-word')) showWord();
     else if (hit('#ty-accept')) acceptAnswer();
     else if (hit('#ty-notes-edit')) renderNotes(true);
     else if (hit('#ty-notes-save')) saveNotes();
@@ -137,6 +139,10 @@ function next() {
 
   const shown = current[shownSide];
   const code = targetCode();
+  /* With Read aloud on, a word that is the prompt is heard, not read: it is
+     hidden until you choose to see it, or until you answer. Only when it can
+     actually be heard — with no voice, hiding it would leave nothing to go on. */
+  const listening = shownSide === 'front' && store.state.settings.typingSpeak && speech.canSpeak(code);
   const askFor = shownSide === 'front' ? 'the meaning' : store.state.settings.targetLanguage;
   const { encounters, correct } = stats(current);
 
@@ -151,9 +157,13 @@ function next() {
         <span>${current.last_seen ? 'last seen ' + current.last_seen : 'new card'}</span>
       </div>
       <div class="card-body">
-        <div class="prompt-label">${shownSide === 'front' ? escapeHtml(store.state.settings.targetLanguage) : 'Meaning'}</div>
-        <div class="prompt" lang="${shownSide === 'front' ? code : 'en'}">${escapeHtml(shown)}</div>
-        ${shownSide === 'front' ? '<button class="btn btn--sm" data-say>Hear it</button>' : ''}
+        <div class="prompt-label">${shownSide === 'front' ? escapeHtml(store.state.settings.targetLanguage) + (listening ? ' — listen' : '') : 'Meaning'}</div>
+        <div class="prompt" id="ty-prompt" lang="${shownSide === 'front' ? code : 'en'}" ${listening ? 'hidden' : ''}>${escapeHtml(shown)}</div>
+        ${listening ? '<div class="redacted" id="ty-listen" role="img" aria-label="Word hidden — listen to it"></div>' : ''}
+        ${shownSide === 'front' ? `<div class="row" style="margin-top:8px">
+          <button class="btn btn--sm" data-say>Listen again</button>
+          ${listening ? '<button class="btn btn--sm" id="ty-show-word">Show word</button>' : ''}
+        </div>` : ''}
         <label class="field" style="margin-top:24px">
           <span>Type ${escapeHtml(askFor)}</span>
           <input type="text" class="answer-input" id="ty-input" lang="${shownSide === 'front' ? 'en' : code}" autocomplete="off" autocapitalize="off" spellcheck="false">
@@ -185,13 +195,24 @@ function next() {
   if (shownSide === 'front') say();
 }
 
+/* Uncover a word hidden for listening. Harmless when nothing is hidden. */
+function showWord() {
+  const word = document.getElementById('ty-prompt');
+  if (!word || !word.hidden) return;
+  word.hidden = false;
+  document.getElementById('ty-listen')?.remove();
+  const label = document.querySelector('#ty-card .prompt-label');
+  if (label) label.textContent = label.textContent.replace(/ — listen$/, '');
+  document.getElementById('ty-show-word')?.remove();
+}
+
 /* ── speech ──────────────────────────────────────────────────────────── */
 
 function targetCode() {
   return speech.languageCode(store.state.settings.targetLanguage);
 }
 
-/* Reads the current card's word. `asked` is a click on Hear it, which plays
+/* Reads the current card's word. `asked` is a click on Listen again, which plays
    even with Read aloud turned off. Bracketed notes are not read out. */
 function say(asked = false) {
   if (!current || (!asked && !store.state.settings.typingSpeak)) return;
@@ -201,14 +222,24 @@ function say(asked = false) {
   speech.speak(current.front.replace(/\([^)]*\)/g, ' '), targetCode(), { voice: store.state.settings.speechVoice });
 }
 
+/* A speaker with sound waves when on, struck through when off. Drawn in
+   currentColor so it follows the button's pressed and theme colours. */
+const SPEAKER = (on) => `<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none"
+  stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M11 5 6 9H3v6h3l5 4z" fill="currentColor"/>
+  ${on ? '<path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M18.5 5.5a9 9 0 0 1 0 13"/>'
+    : '<path d="m16 9 6 6"/><path d="m22 9-6 6"/>'}</svg>`;
+
 function renderSpeak() {
   const btn = $('ty-speak');
   const lang = store.state.settings.targetLanguage || 'this language';
   const voice = speech.canSpeak(targetCode());
   btn.disabled = !voice;
-  btn.setAttribute('aria-pressed', String(voice && !!store.state.settings.typingSpeak));
+  const on = voice && !!store.state.settings.typingSpeak;
+  btn.setAttribute('aria-pressed', String(on));
+  btn.innerHTML = SPEAKER(on);
   btn.title = voice
-    ? 'Reads the word aloud when it is shown, or once you have answered'
+    ? `Read aloud: ${on ? 'on' : 'off'}. When the word is the prompt it is hidden, so you listen first — Show word uncovers it.`
     : `No ${lang} voice is installed. On a Mac: System Settings → Accessibility → Spoken Content → System voice → Manage Voices.`;
   for (const hear of document.querySelectorAll('#ty-card [data-say]')) hear.disabled = !voice;
 }
@@ -299,6 +330,7 @@ function settle(ok) {
   nextBtn.focus();
   /* Read the word if it was the answer, since it has not been heard yet. */
   if (shownSide === 'back') say();
+  showWord();
 }
 
 /* The best of the verdicts against every accepted meaning. */
@@ -362,9 +394,9 @@ function feedback(verdict, typed, expected, move) {
   }
 
   /* When the word was the answer, it has only just appeared — in the verdict
-     above — so that is where its Hear it goes, not by the English prompt. */
+     above — so that is where its Listen again goes, not by the English prompt. */
   const hear = shownSide === 'back'
-    ? `<div class="row" style="margin-top:8px"><button class="btn btn--sm" data-say>Hear it</button></div>` : '';
+    ? `<div class="row" style="margin-top:8px"><button class="btn btn--sm" data-say>Listen again</button></div>` : '';
   return head + hear + `<div id="ty-notes-area" style="margin-top:12px">${notesHtml(false)}</div>`;
 }
 
