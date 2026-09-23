@@ -28,6 +28,9 @@ let scope = 'all';
 let current = null;
 let shownSide = 'front';
 let answered = false;
+/* True once this card's hidden word has been typed back as heard — see
+   takeHeard(). The meaning is still to come; this only happens once. */
+let heardTyped = false;
 let previous = null;
 /* The card just answered. It becomes "Last card" only once you move on —
    while it is still on screen, its own feedback already says everything. */
@@ -143,6 +146,7 @@ function next() {
 
   current = pickWeighted(p, 1)[0];
   answered = false;
+  heardTyped = false;
   last = null;
   const dir = store.state.settings.typingDirection;
   /* Accents live on the front, so that is always the side asked for when
@@ -179,7 +183,7 @@ function next() {
           ${listening ? '<button class="btn btn--sm" id="ty-show-word">Show word</button>' : ''}
         </div>` : ''}
         <label class="field" style="margin-top:24px">
-          <span>Type ${escapeHtml(askFor)}</span>
+          <span id="ty-ask">Type ${escapeHtml(askFor)}</span>
           <input type="text" class="answer-input" id="ty-input" lang="${shownSide === 'front' ? 'en' : code}" autocomplete="off" autocapitalize="off" spellcheck="false">
         </label>
         <div class="row" style="margin-top:12px">
@@ -187,6 +191,7 @@ function next() {
           <button class="btn btn--primary" id="ty-next" hidden>Next card</button>
           <button class="btn" id="ty-skip" title="Moves on without counting anything">Skip</button>
         </div>
+        <div id="ty-heard" style="margin-top:16px" hidden></div>
         <div id="ty-feedback" style="margin-top:16px"></div>
       </div>
     </div>`;
@@ -344,6 +349,9 @@ function check() {
   const input = $('ty-input');
   const typed = input.value.trim();
   if (!typed) { input.focus(); return; }
+
+  const heard = heardAttempt(typed);
+  if (heard) { takeHeard(typed, heard); return; }
 
   answered = true;
   const expected = shownSide === 'front' ? current.back : current.front;
@@ -555,8 +563,62 @@ function wordMarks(verdict, typed, expected) {
   if (verdict !== 'wrong' || shownSide !== 'back') return '';
   const d = diff(words(expected), words(typed));
   if (!d.ok && !d.accent) return '';
+  return tokensHtml(d);
+}
+
+function tokensHtml(d) {
   const cls = { ok: '', accent: 'w-accent', missing: 'w-missing', extra: 'w-extra' };
   return d.tokens.map(({ kind, text }) => `<span class="w ${cls[kind]}">${escapeHtml(text)}</span>`).join(' ');
+}
+
+/* ── typing what you hear ────────────────────────────────────────────── */
+
+/* With the word hidden and only heard, the natural thing to type is what
+   was heard — which is the word, not its meaning. Rather than mark that
+   wrong, it is taken as a first step: the spelling and tones are marked,
+   and the same card goes on to ask for the meaning. Nothing is scored for
+   it; the card's score still rests on the meaning. A tone slip does put
+   the card on the Accents list, and an exact transcription takes it off,
+   by the same rule as anywhere else. Only while the word is still hidden:
+   typing back a word you can see is copying, not listening. */
+function heardAttempt(typed) {
+  if (heardTyped || shownSide !== 'front') return null;
+  const hidden = document.getElementById('ty-prompt');
+  if (!hidden || !hidden.hidden) return null;
+  if (bestVerdict(typed, meanings(current)) === 'exact') return null;
+  const said = current.front.replace(/\([^)]*\)/g, ' ');
+  const ref = words(said);
+  const usr = words(typed);
+  if (!ref.length || !usr.length) return null;
+  const d = diff(ref, usr);
+  /* It has to be recognisably the word: most of it there, and not mostly
+     other words. English typed as a meaning shares nothing with it. */
+  const matched = d.ok + d.accent;
+  if (!matched || matched * 2 < ref.length || d.extra > matched) return null;
+  return { exact: normalize(typed) === normalize(said), accent: d.accent > 0, d };
+}
+
+function takeHeard(typed, heard) {
+  heardTyped = true;
+  showWord();
+  if (heard.exact) delete current.accent_slip;
+  else if (heard.accent) current.accent_slip = true;
+  if (heard.exact || heard.accent) store.cardAnswered(current);
+
+  const el = $('ty-heard');
+  el.hidden = false;
+  el.innerHTML = heard.exact
+    ? `<div class="verdict is-ok">You wrote what you heard — spot on</div>`
+    : `<div class="verdict is-warn">You wrote what you heard
+        <span class="reveal">${escapeHtml(current.front)}</span></div>
+       <div class="typed-back" style="margin-top:6px">you typed ${tokensHtml(heard.d)}</div>${WORD_LEGEND}`;
+
+  const input = $('ty-input');
+  input.value = '';
+  input.lang = 'en';
+  $('ty-ask').textContent = 'Now type the meaning';
+  renderCheck();
+  input.focus();
 }
 
 const WORD_LEGEND = `<div class="legend" style="margin-top:6px">
