@@ -67,3 +67,16 @@ test('a clip is named by its voice and a fingerprint, the same every time', asyn
   assert.notEqual(await clipName('vi-VN-HoaiMyNeural', 'biệt thụ'), a);
   assert.equal(dataPath(`voice/${a}`), `voice/${a}`, 'a saved clip is part of the backup layout');
 });
+
+test('text that reads the same shares one clip; different words do not', async () => {
+  const { clipName, spokenForm } = await import('../js/azure-tts.js');
+  const voice = 'vi-VN-NamMinhNeural';
+  const name = (t) => clipName(voice, t);
+  const plain = await name('biệt thự');
+  assert.equal(await name('biệt thự'.normalize('NFD')), plain, 'the same letters, stored decomposed');
+  assert.equal(await name('Biệt Thự'), plain, 'capitals');
+  assert.equal(await name('  biệt   thự  '), plain, 'spaces, including those left where a bracketed note was');
+  assert.notEqual(await name('biết thự'), plain, 'a different tone is a different word');
+  assert.notEqual(await name('biệt thự?'), plain, 'punctuation changes how it is read');
+  assert.equal(spokenForm('  Đi  ĐÂU? '), 'đi đâu?');
+});
