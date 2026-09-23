@@ -114,7 +114,13 @@ dictation bank, so an old backup never drops a sentence made since.
 
 Connecting an empty folder copies across what the browser already holds, so
 practice done before you picked one comes with you. A folder that already has
-data is used as it is found and never overwritten.
+data is used as it is found and never overwritten. Going the other way,
+**Move into browser storage** copies a connected folder into the browser and
+disconnects it, leaving the folder itself untouched.
+
+Each browser has its own storage, so data in Chrome is not visible to Safari.
+To move a folder into Safari, open the app there and use **Restore from
+folder** on the same folder.
 
 **Back up now and then if you stay in the browser.** Browser storage is only as
 durable as the browser makes it: Safari clears storage for sites you have not

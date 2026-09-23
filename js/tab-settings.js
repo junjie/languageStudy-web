@@ -66,6 +66,26 @@ function wireFolder() {
     await useBrowser();
   });
 
+  /* The way off a folder: copy it into browser storage and carry on there.
+     The folder itself is left exactly as it was, so this loses nothing. */
+  $('folder-to-browser').addEventListener('click', async () => {
+    const name = storage.folderName();
+    if (!confirm(`Copy everything in "${name}" into this browser's storage and stop using the folder?\n\n`
+      + 'The folder is left untouched. Anything already in browser storage with the same name is replaced; banked sentences are merged.')) return;
+    const files = [];
+    for (const { path, data } of await storage.allFiles()) {
+      files.push({ path, bytes: new Uint8Array(await data.arrayBuffer()) });
+    }
+    await storage.disconnect();
+    if (!(await store.useBrowser())) {
+      setFolderStatus('This browser will not store anything, so nothing was moved. Choose the folder again to keep using it.', 'is-bad');
+      return;
+    }
+    persisted = await storage.askPersist();
+    const n = await store.restoreFiles(files);
+    setFolderStatus(`Moved ${n} file${n === 1 ? '' : 's'} from "${name}" into this browser. The folder is untouched; you can delete it or keep it as a backup.`, 'is-ok');
+  });
+
   $('folder-export').addEventListener('click', () => {
     storage.download(`${store.state.deckName}.json`, serializeDeck(store.state.cards));
   });
@@ -158,6 +178,7 @@ function renderFolder() {
 
   $('folder-connect').hidden = !storage.SUPPORTS_FS || w === 'folder';
   $('folder-disconnect').hidden = w !== 'folder';
+  $('folder-to-browser').hidden = w !== 'folder';
   $('folder-export').hidden = !store.state.cards.length;
   for (const id of ['restore-zip', 'restore-dir']) $(id).disabled = w !== 'folder' && w !== 'browser';
 
