@@ -200,7 +200,7 @@
   </div>
 
   <div class="block">
-    <div class="block-head"><h2>Read-aloud voice</h2><span class="hint">Typing · built into this device</span></div>
+    <div class="block-head"><h2>Read-aloud voice</h2><span class="hint">Typing · this device, or Azure</span></div>
     <div class="block-body">
       <p class="note">The voice that reads words aloud in Typing practice. These come with your operating system, cost nothing and work offline — they are nothing to do with Gemini or your API key. Only voices for your target language are listed; to add more on a Mac, go to System Settings → Accessibility → Spoken Content → System voice → Manage Voices, then reload this page.</p>
       <div class="row">
@@ -211,6 +211,16 @@
           <input type="range" id="set-speech-rate" class="rate">
         </label>
         <button class="btn" id="speech-sample" style="align-self:flex-end">Play sample</button>
+      </div>
+      <p class="note"><strong>Azure neural voices</strong> (optional) are Microsoft's natural-sounding voices, the same on every device, read with your own key from an Azure Speech resource. Its free tier covers 500,000 characters a month; each word is fetched once per session and replayed after that. Like the Gemini key, the Azure key is kept in this browser only. The README says how to make one.</p>
+      <div class="row">
+        <label class="field" style="flex:2 1 240px"><span>Azure Speech key</span>
+          <input type="password" id="set-azure-key" placeholder="KEY 1 from Keys and Endpoint" autocomplete="off" spellcheck="false">
+        </label>
+        <label class="field" style="flex:1 1 140px"><span>Region</span>
+          <input type="text" id="set-azure-region" placeholder="southeastasia" autocomplete="off" spellcheck="false">
+        </label>
+        <button class="btn" id="azure-load" style="align-self:flex-end">Load voices</button>
       </div>
     </div>
     <div class="status" id="speech-status"></div>

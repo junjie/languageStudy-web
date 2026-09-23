@@ -370,6 +370,26 @@ Chrome and Edge choose a folder first.
 
 Exporting works whatever the browser can or cannot save.
 
+## Azure neural voices (optional)
+
+Words are read aloud by your device's own voice unless you give the app an
+Azure Speech key, which adds Microsoft's neural voices — the same
+natural-sounding voices on every device (HoaiMy and NamMinh for Vietnamese).
+They sit in the same voice list, under *Azure neural voices*.
+
+To make a key: sign in at [portal.azure.com](https://portal.azure.com),
+**Create a resource**, search **Speech**, and create one with the **Free F0**
+pricing tier and a region near you (Southeast Asia, say). Once it is
+deployed, **Keys and Endpoint** shows *KEY 1* and the *Location/Region*;
+paste both into **Settings → Read-aloud voice**.
+
+The free tier covers 500,000 characters a month. Each word is fetched once per
+session and replayed from memory after that, so a large deck goes through many
+times before that runs out. Like the Gemini key, the Azure key is kept in this
+browser's `localStorage` and never in the data folder, a backup or a bundle.
+If Azure refuses a request — a wrong key, the allowance spent, no network —
+the device voice reads instead and Settings says why.
+
 ## The API key
 
 Dictation calls `generativelanguage.googleapis.com` directly from the page. Get
