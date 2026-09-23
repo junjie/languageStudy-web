@@ -246,7 +246,7 @@ function size(bytes) {
 /* What a backup holds, counted the way someone thinks about it. */
 function describeFiles(files) {
   const decks = files.filter((f) => f.path.startsWith('decks/')).length;
-  const audio = files.filter((f) => /^audio[/].+[.]wav$/.test(f.path)).length;
+  const audio = files.filter((f) => /^audio[/].+[.](wav|ogg)$/.test(f.path)).length;
   const bits = [];
   if (decks) bits.push(plural(decks, 'deck'));
   if (audio) bits.push(plural(audio, 'banked sentence'));
