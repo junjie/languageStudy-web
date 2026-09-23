@@ -650,15 +650,14 @@ function checkHeard() {
   else if (heard.accent) current.accent_slip = true;
   if (heard.exact || heard.accent) store.cardAnswered(current);
 
+  /* The word itself is on screen just above, so this is only what was heard,
+     marked syllable by syllable to be read against it, and a line in words
+     saying how it compares — no legend to decode. */
   const el = $('ty-heard');
   el.hidden = false;
-  el.innerHTML = heard.exact
-    ? `<div class="verdict is-ok">Heard right</div>`
-    /* Says what the word is, not what was heard: "Heard as tựa tựa" read as
-       though the learner had heard tựa tựa, the opposite of what happened. */
-    : `<div class="verdict ${heard.misheard ? 'is-bad' : 'is-warn'}">${heard.misheard ? 'Not quite' : 'Close'} — the word is
-        <span class="reveal">${escapeHtml(current.front)}</span></div>
-       <div class="typed-back" style="margin-top:6px">you typed ${heard.html}</div>${HEARD_LEGEND}`;
+  el.innerHTML = `<div class="verdict ${heard.exact ? 'is-ok' : heard.bad ? 'is-bad' : 'is-warn'}">You heard
+      <span class="heard-marks">${heard.html}</span></div>
+    <div class="typed-back" style="margin-top:6px">${escapeHtml(heard.summary)}</div>`;
   showWord();
   if (!answered) $('ty-input').focus();
 }
@@ -670,34 +669,50 @@ function skipHeard() {
   if (!answered) $('ty-input').focus();
 }
 
-/* How a transcription compares with the word, syllable by syllable when the
-   counts agree — which shows a mishearing, "nghiệp thực" for "biệt thự",
-   one syllable at a time — and by the word diff otherwise. */
+/* How a transcription compares with the word. Returns the typed syllables
+   marked — right, right sound with the wrong tone, misheard — with a "…"
+   where one was left out, and a sentence saying the same in words.
+   Syllables are compared pairwise when the counts agree, which shows a
+   mishearing ("nghiệp thực" for "biệt thự") one syllable at a time;
+   otherwise they are aligned by the word diff. */
 function markHeard(typed) {
   const said = current.front.replace(/\([^)]*\)/g, ' ');
   const ref = words(said);
   const usr = words(typed);
+  let marks;
   if (ref.length === usr.length) {
-    const pairs = ref.map((r, i) => ({
-      r, u: usr[i], kind: usr[i] === r ? 'ok' : base(usr[i]) === base(r) ? 'accent' : 'misheard',
-    }));
-    return {
-      exact: pairs.every((q) => q.kind === 'ok'),
-      misheard: pairs.some((q) => q.kind === 'misheard'),
-      accent: pairs.some((q) => q.kind === 'accent'),
-      html: pairs.map(({ r, u, kind }) => kind === 'ok' ? `<span class="w">${escapeHtml(u)}</span>`
-        : kind === 'accent' ? `<span class="w w-accent">${escapeHtml(u)}</span>`
-        : `<span class="w w-extra">${escapeHtml(u)}</span><span class="w w-missing">${escapeHtml(r)}</span>`).join(' '),
-    };
+    marks = ref.map((r, i) => ({ text: usr[i], kind: usr[i] === r ? 'ok' : base(usr[i]) === base(r) ? 'accent' : 'misheard' }));
+  } else {
+    const kind = { ok: 'ok', accent: 'accent', extra: 'misheard', missing: 'missing' };
+    marks = diff(ref, usr).tokens.map((t) => ({ text: t.kind === 'missing' ? '…' : t.text, kind: kind[t.kind] }));
   }
-  const d = diff(ref, usr);
-  return { exact: normalize(typed) === normalize(said), accent: d.accent > 0, misheard: d.missing + d.extra > 0, html: tokensHtml(d) };
+  const count = (k) => marks.filter((m) => m.kind === k).length;
+  const c = { misheard: count('misheard'), accent: count('accent'), missing: count('missing') };
+  const exact = !c.misheard && !c.accent && !c.missing;
+  const cls = { ok: '', accent: 'w-accent', misheard: 'w-missing', missing: 'w-missing' };
+  const tip = { ok: 'right', accent: 'right sound, wrong tone', misheard: 'misheard', missing: 'left out' };
+  return {
+    exact,
+    accent: c.accent > 0,
+    bad: c.misheard > 0 || c.missing > 0,
+    html: marks.map((m) => `<span class="w ${cls[m.kind]}" title="${tip[m.kind]}">${escapeHtml(m.text)}</span>`).join(' '),
+    summary: exact ? 'Heard right.' : heardSummary(c, ref.length),
+  };
 }
 
-const HEARD_LEGEND = `<div class="legend" style="margin-top:6px">
-  <span><i class="w w-accent">word</i> wrong tone or accent</span>
-  <span><i class="w w-extra">heard</i><i class="w w-missing">said</i> misheard</span>
-  <span><i class="w w-missing">word</i> missing</span></div>`;
+function heardSummary({ misheard, accent, missing }, total) {
+  const n = (k, word = 'syllable') => `${k} ${word}${k === 1 ? '' : 's'}`;
+  const parts = [];
+  if (misheard) {
+    parts.push(misheard === total && !accent && !missing
+      ? (total === 1 ? 'misheard' : total === 2 ? 'both syllables misheard' : `all ${total} syllables misheard`)
+      : `${n(misheard)} misheard`);
+  }
+  if (accent) parts.push(`wrong tone on ${n(accent)}`);
+  if (missing) parts.push(`${n(missing)} left out`);
+  const text = parts.join(', ');
+  return `${text[0].toUpperCase()}${text.slice(1)} — compare with the word above.`;
+}
 
 const WORD_LEGEND = `<div class="legend" style="margin-top:6px">
   <span><i class="w w-accent">word</i> wrong accent</span>
