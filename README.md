@@ -41,6 +41,9 @@ every ticked deck at once, drawn together as one pool. Right word with the wrong
 accents gets its own verdict, with the offending characters marked, because that
 is a different mistake from not knowing the word — and the card is flagged, so
 the **Accents** filter drills exactly the words whose marks you keep missing.
+A wrong answer in that language is marked word by word, as in Dictation: which
+words were right, which had the wrong accent, which are not in the answer and
+which are missing.
 
 The word can also be **read aloud** by your device's own voice, free and
 offline. With that on, a word that is the prompt is hidden behind a bar: you

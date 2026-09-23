@@ -20,7 +20,7 @@ import {
   stats, SCORE_LABEL,
 } from './deck.js';
 import * as speech from './speech.js';
-import { compareAnswer, compareMeaning, normalize, accentMarks, escapeHtml, scoreMark } from './text.js';
+import { compareAnswer, compareMeaning, normalize, words, diff, accentMarks, escapeHtml, scoreMark } from './text.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -316,7 +316,7 @@ function check() {
 
   $('ty-feedback').innerHTML = feedback(verdict, typed, expected, move);
   last = { typed, expected, before: move.before, slipBefore };
-  justAnswered = { shown: current[shownSide], expected, typed, verdict, notes: current.notes };
+  justAnswered = { shown: current[shownSide], expected, typed, verdict, notes: current.notes, words: wordMarks(verdict, typed, expected) };
   store.cardAnswered(current);
 }
 
@@ -428,9 +428,10 @@ function feedback(verdict, typed, expected, move) {
       <span class="reveal">${escapeHtml(expected)}</span>${moved}</div>
       <div class="typed-back" style="margin-top:6px">you typed ${markAccents(typed, expected)}</div>${alts}${acceptBtn}`;
   } else {
+    const marks = wordMarks(verdict, typed, expected);
     head = `<div class="verdict is-bad">Not quite
       <span class="reveal">${escapeHtml(expected)}</span>${moved}</div>
-      <div class="typed-back" style="margin-top:6px">you typed <s>${escapeHtml(typed)}</s></div>${alts}${acceptBtn}`;
+      <div class="typed-back" style="margin-top:6px">you typed ${marks || `<s>${escapeHtml(typed)}</s>`}</div>${marks ? WORD_LEGEND : ''}${alts}${acceptBtn}`;
   }
 
   /* When the word was the answer it has only just appeared — in the verdict
@@ -494,6 +495,26 @@ function markAccents(typed, expected) {
     .join('');
 }
 
+/* A wrong answer in the language being learnt, marked word by word the way
+   Dictation marks a sentence — so "có tải có đẹp" for "có tài có sắc" shows
+   two words right, one with the wrong accent and one that is not the word,
+   rather than striking out the lot. Only when something in it matched:
+   marking every word of an unrelated answer wrong says nothing a strike-
+   through does not. Meanings are not marked this way; they are matched by
+   parts and alternatives, not word by word. Returns '' when not used. */
+function wordMarks(verdict, typed, expected) {
+  if (verdict !== 'wrong' || shownSide !== 'back') return '';
+  const d = diff(words(expected), words(typed));
+  if (!d.ok && !d.accent) return '';
+  const cls = { ok: '', accent: 'w-accent', missing: 'w-missing', extra: 'w-extra' };
+  return d.tokens.map(({ kind, text }) => `<span class="w ${cls[kind]}">${escapeHtml(text)}</span>`).join(' ');
+}
+
+const WORD_LEGEND = `<div class="legend" style="margin-top:6px">
+  <span><i class="w w-accent">word</i> wrong accent</span>
+  <span><i class="w w-extra">word</i> not in the answer</span>
+  <span><i class="w w-missing">word</i> missing</span></div>`;
+
 function renderPrevious() {
   const el = $('ty-prev');
   if (!previous) { el.innerHTML = ''; return; }
@@ -502,7 +523,7 @@ function renderPrevious() {
   /* The same marking as the feedback it came from: one wrong accent is one
      highlighted letter, not a struck-out answer. */
   const shownTyped = verdict === 'accent' ? markAccents(previous.typed, previous.expected)
-    : `<s>${escapeHtml(previous.typed)}</s>`;
+    : previous.words || `<s>${escapeHtml(previous.typed)}</s>`;
   const typed = verdict === 'exact' || verdict === 'revealed' ? '' :
     `<div class="typed-back" style="margin-top:4px">you typed ${shownTyped}</div>`;
   el.innerHTML = `
