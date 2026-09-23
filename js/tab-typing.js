@@ -124,7 +124,8 @@ function next() {
         <div class="row" style="margin-top:12px">
           <button class="btn btn--primary" id="ty-check">Check</button>
           <button class="btn btn--primary" id="ty-next" hidden>Next card</button>
-          <button class="btn" id="ty-skip">Skip</button>
+          <button class="btn" id="ty-reveal" title="Shows the answer and counts it as a miss">Show answer</button>
+          <button class="btn" id="ty-skip" title="Moves on without counting anything">Skip</button>
         </div>
         <div id="ty-feedback" style="margin-top:16px"></div>
       </div>
@@ -133,6 +134,7 @@ function next() {
   $('ty-check').addEventListener('click', check);
   $('ty-next').addEventListener('click', next);
   $('ty-skip').addEventListener('click', next);
+  $('ty-reveal').addEventListener('click', reveal);
   const input = $('ty-input');
   input.addEventListener('keydown', (e) => {
     if (e.key !== 'Enter') return;
@@ -190,13 +192,7 @@ function check() {
   $('ty-right').textContent = tally.right;
   $('ty-wrong').textContent = tally.wrong;
 
-  input.disabled = true;
-  input.className = 'answer-input ' + (ok ? 'is-ok' : 'is-bad');
-  $('ty-check').hidden = true;
-  $('ty-skip').hidden = true;
-  const nextBtn = $('ty-next');
-  nextBtn.hidden = false;
-  nextBtn.focus();
+  settle(ok);
 
   $('ty-feedback').innerHTML = feedback(verdict, typed, expected, move);
   last = { typed, expected, before: move.before };
@@ -205,6 +201,38 @@ function check() {
   previous = { shown: current[shownSide], expected, typed, verdict, notes: current.notes };
   renderPrevious();
   store.cardAnswered();
+}
+
+/* Not knowing is a miss — it is recorded like any wrong answer, so the card
+   keeps coming back. Skip is the way past a card without a verdict. */
+function reveal() {
+  if (answered || !current) return;
+  answered = true;
+  const expected = shownSide === 'front' ? current.back : current.front;
+  const move = recordResult(current, false, { typedFront: shownSide === 'back' });
+  tally.total++;
+  tally.wrong++;
+  $('ty-total').textContent = tally.total;
+  $('ty-wrong').textContent = tally.wrong;
+  settle(false);
+  $('ty-feedback').innerHTML = feedback('revealed', '', expected, move);
+  last = null;
+  previous = { shown: current[shownSide], expected, typed: '', verdict: 'revealed', notes: current.notes };
+  renderPrevious();
+  store.cardAnswered();
+}
+
+/* Lock the card once it has a verdict, and hand the keyboard to Next. */
+function settle(ok) {
+  const input = $('ty-input');
+  input.disabled = true;
+  input.className = 'answer-input ' + (ok ? 'is-ok' : 'is-bad');
+  $('ty-check').hidden = true;
+  $('ty-reveal').hidden = true;
+  $('ty-skip').hidden = true;
+  const nextBtn = $('ty-next');
+  nextBtn.hidden = false;
+  nextBtn.focus();
 }
 
 /* The best of the verdicts against every accepted meaning. */
@@ -242,7 +270,11 @@ function feedback(verdict, typed, expected, move) {
        <span class="note">Counts it as right, and saves it as another meaning of this card.</span></div>` : '';
 
   let head;
-  if (verdict === 'accepted') {
+  if (verdict === 'revealed') {
+    const others = shownSide === 'front' && (current.alternatives || []).length
+      ? `<div class="typed-back" style="margin-top:6px">also accepted: ${current.alternatives.map(escapeHtml).join(' · ')}</div>` : '';
+    head = `<div class="verdict is-bad">Answer <span class="reveal">${escapeHtml(expected)}</span>${moved}</div>${others}`;
+  } else if (verdict === 'accepted') {
     head = `<div class="verdict is-ok">Accepted${moved}</div>
       <div class="typed-back" style="margin-top:6px">“${escapeHtml(typed)}” is now saved as another meaning, beside <strong>${escapeHtml(expected)}</strong></div>`;
   } else if (verdict === 'exact') {
@@ -270,7 +302,7 @@ function renderPrevious() {
   const el = $('ty-prev');
   if (!previous) { el.innerHTML = ''; return; }
   const cls = previous.verdict === 'exact' ? 'is-ok' : 'is-bad';
-  const typed = previous.verdict === 'exact' ? '' :
+  const typed = previous.verdict === 'exact' || previous.verdict === 'revealed' ? '' :
     `<div class="typed-back" style="margin-top:4px">you typed <s>${escapeHtml(previous.typed)}</s></div>`;
   el.innerHTML = `
     <div class="prev ${cls}">

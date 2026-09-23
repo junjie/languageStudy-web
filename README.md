@@ -41,7 +41,8 @@ recognised and converted on the way in.
 **Typing** — one side of a card is shown and you type the other. Right word with
 the wrong accents gets its own verdict, with the offending characters marked,
 because that is a different mistake from not knowing the word — and the card
-goes on the Accents list to drill later.
+goes on the Accents list to drill later. **Show answer** gives up on a card (it
+counts as a miss); **Skip** moves on without counting anything.
 
 **Dictation** — a sentence is written around two or three of your weakest cards,
 spoken aloud, and diffed word by word against what you type. Needs an API key.
