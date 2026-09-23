@@ -48,7 +48,14 @@ export function init() {
     next();
   });
 
-  store.subscribe('deck', () => { renderPool(); if (!current) next(); });
+  /* A card from a deck that is no longer loaded must not stay on screen: an
+     answer to it would be recorded on a card nothing saves. This happens on
+     every page load, when the stored deck replaces the starter deck the page
+     boots with, and whenever another deck is picked or the deck is edited. */
+  store.subscribe('deck', () => {
+    renderPool();
+    if (!current || !store.state.cards.includes(current)) next();
+  });
   next();
 }
 
