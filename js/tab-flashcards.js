@@ -2,14 +2,22 @@
 
    The textarea holds exactly what is on disk. There is no form over the top of
    it and no hidden second file — what you read is the storage format, which is
-   the point: a deck can be written, pasted or diffed anywhere. */
+   the point: a deck can be written, pasted or diffed anywhere.
+
+   The deck menu answers two questions at once, and they are deliberately not
+   the same control. The tickbox says whether a deck's words may come up in
+   practice; the name says which deck this editor is looking at. A plain
+   <select> could only ever answer one of them, which is why this is a menu
+   built by hand rather than a dropdown. */
 
 import * as store from './store.js';
 import { parseDeck, serializeDeck, importWatchlist, stats, SCORE_LABEL } from './deck.js';
+import { escapeHtml } from './text.js';
 
 const $ = (id) => document.getElementById(id);
 
 let dirty = false;
+let menuOpen = false;
 
 export function init() {
   const editor = $('deck-editor');
@@ -37,11 +45,7 @@ export function init() {
     validate();
   });
 
-  $('deck-select').addEventListener('change', async (e) => {
-    if (!(await confirmDiscard())) { e.target.value = store.state.deckName; return; }
-    await store.loadDeck(e.target.value);
-    load();
-  });
+  wireDeckMenu();
 
   $('deck-new').addEventListener('click', async () => {
     if (!(await confirmDiscard())) return;
@@ -72,16 +76,100 @@ export function init() {
   load();
 }
 
+/* ── the deck menu ───────────────────────────────────────────────────── */
+
+function wireDeckMenu() {
+  $('deck-toggle').addEventListener('click', () => setMenu(!menuOpen));
+
+  $('deck-menu').addEventListener('change', async (e) => {
+    const box = e.target.closest('input[type=checkbox]');
+    if (!box) return;
+    const on = new Set(store.practiceDecks());
+    if (box.checked) on.add(box.value);
+    else on.delete(box.value);
+    const applied = await store.setPracticeDecks([...on]);
+    /* setPracticeDecks refuses an empty selection, so the tick that was just
+       taken off the last deck has to go back on. */
+    if (!box.checked && applied.includes(box.value)) {
+      box.checked = true;
+      note('At least one deck has to stay ticked — practice needs somewhere to draw from.', 'is-warn');
+    }
+    renderDeckList();
+  });
+
+  $('deck-menu').addEventListener('click', async (e) => {
+    const btn = e.target.closest('button[data-open]');
+    if (!btn) return;
+    setMenu(false);
+    if (btn.dataset.open === store.state.deckName) return;
+    if (!(await confirmDiscard())) return;
+    await store.loadDeck(btn.dataset.open);
+    load();
+  });
+
+  /* A menu that stays open once the pointer has gone elsewhere is a menu you
+     have to remember to close. */
+  document.addEventListener('click', (e) => {
+    if (menuOpen && !e.target.closest('.deck-picker')) setMenu(false);
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && menuOpen) { setMenu(false); $('deck-toggle').focus(); }
+  });
+}
+
+function setMenu(open) {
+  menuOpen = open && !$('deck-toggle').disabled;
+  $('deck-menu').hidden = !menuOpen;
+  $('deck-toggle').setAttribute('aria-expanded', String(menuOpen));
+}
+
 function renderDeckList() {
-  const sel = $('deck-select');
   const names = store.state.deckNames.length ? store.state.deckNames : [store.state.deckName];
-  sel.innerHTML = names.map((n) =>
-    `<option value="${n}"${n === store.state.deckName ? ' selected' : ''}>${n}.json</option>`).join('');
+  const ticked = new Set(store.practiceDecks());
+  const menu = $('deck-menu');
+
+  /* The rows are rebuilt only when the decks themselves change, never on a
+     tick. Replacing the markup would throw away the very checkbox that was
+     just clicked, which costs a keyboard user their place in the menu — and
+     leaves anything still holding the old node talking to nothing. */
+  /* Deck names are slugs, so a comma cannot occur inside one. */
+  const signature = names.join(',');
+  if (menu.dataset.names !== signature) {
+    menu.dataset.names = signature;
+    menu.innerHTML = names.map((n) => `<div class="deck-row" data-deck="${escapeHtml(n)}">
+      <input type="checkbox" value="${escapeHtml(n)}" aria-label="Practise ${escapeHtml(n)}">
+      <button type="button" class="deck-name" data-open="${escapeHtml(n)}">${escapeHtml(n)}.json</button>
+      <span class="deck-count"></span>
+    </div>`).join('');
+  }
+
+  for (const row of menu.querySelectorAll('.deck-row')) {
+    const n = row.dataset.deck;
+    const count = (store.state.decks[n] || []).length;
+    const open = n === store.state.deckName;
+    row.classList.toggle('is-open', open);
+    row.querySelector('input').checked = ticked.has(n);
+    row.querySelector('.deck-count').textContent =
+      `${count} card${count === 1 ? '' : 's'}${open ? ' · open' : ''}`;
+  }
+
+  $('deck-toggle-name').textContent = `${store.state.deckName}.json`;
+  $('deck-toggle-sub').textContent = ticked.size === names.length && names.length > 1
+    ? `all ${names.length} decks in practice`
+    : `${ticked.size} of ${names.length} deck${names.length === 1 ? '' : 's'} in practice`;
+
   const off = !store.state.persistent;
   $('deck-new').disabled = off;
   $('deck-rename').disabled = off;
   $('deck-delete').disabled = off || names.length <= 1;
-  sel.disabled = off;
+  $('deck-toggle').disabled = off;
+  if (off) setMenu(false);
+}
+
+function note(text, cls) {
+  const el = $('deck-status');
+  el.textContent = text;
+  el.className = 'status ' + cls;
 }
 
 function load() {
@@ -116,6 +204,7 @@ function validate() {
     `${cards.length} card${cards.length === 1 ? '' : 's'}`,
     practised ? `${practised} practised` : 'none practised yet',
     spread,
+    store.isPracticeDeck(store.state.deckName) ? 'ticked for practice' : 'not ticked — sits out of practice',
     dirty ? 'unsaved changes' : (store.state.persistent ? 'saved' : 'in memory only'),
   ].filter(Boolean).join('  ·  ');
   el.className = 'status ' + (dirty ? 'is-warn' : 'is-ok');

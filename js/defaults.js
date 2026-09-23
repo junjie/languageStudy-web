@@ -58,6 +58,10 @@ export const DEFAULT_SETTINGS = {
   voices: VOICE_NAMES.slice(),
   fallbackVoice: 'Kore',
   typingDirection: 'random',
+  /* Which decks the practice tabs may draw from. Empty means "whichever deck
+     is open" — the honest answer on a fresh install, where there is only one.
+     The Flashcards tab keeps this list and never lets it empty out. */
+  practiceDecks: [],
   theme: 'dark',
 };
 
@@ -108,5 +112,9 @@ export function withDefaults(loaded) {
   const wanted = new Set(Array.isArray(s.voices) ? s.voices.map(String) : []);
   const enabled = VOICE_NAMES.filter((n) => wanted.has(n));
   s.voices = enabled.length ? enabled : [s.fallbackVoice || 'Kore'];
+  /* Deck names only; which of them still exist is decided against the folder,
+     not here, so a deck that is temporarily missing is not forgotten. */
+  s.practiceDecks = Array.isArray(s.practiceDecks)
+    ? [...new Set(s.practiceDecks.map(String).filter(Boolean))] : [];
   return s;
 }

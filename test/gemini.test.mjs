@@ -217,6 +217,19 @@ test('the sidecar repeats what the manifest holds', () => {
   assert.equal(text, 'Tôi đi học.\nI go to school.\n[terms] đi, học\n[language] Vietnamese\n[voice] Kore\n[created] 2026-01-01\n');
 });
 
+test('the sidecar records the deck and the difficulty when the entry has them', () => {
+  const text = sidecarText({
+    sentence: 'Tôi đi học.', english: 'I go to school.',
+    terms: ['đi', 'học'], deck: 'everyday', difficulty: 'beginner',
+    language: 'Vietnamese', voice: 'Kore', created: '2026-01-01',
+  });
+  assert.ok(text.includes('[deck] everyday'));
+  assert.ok(text.includes('[difficulty] beginner'));
+  /* The difficulty is the level the sentence was written at, not whatever the
+     settings say today, so it has to be on the file rather than looked up. */
+  assert.equal(text.split('\n')[3], '[deck] everyday');
+});
+
 test('a voice is always picked, even from a broken pool', () => {
   assert.ok(DEFAULT_SETTINGS.voices.includes(pickVoice(DEFAULT_SETTINGS)));
   assert.equal(pickVoice(withDefaults({ voices: ['Kore'] })), 'Kore');

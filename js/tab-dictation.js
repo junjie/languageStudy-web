@@ -8,11 +8,16 @@
 
    The target words stay masked until you submit. They are the answer: they are
    the exact strings matched against what you type. Showing them first would
-   turn the exercise into copying. */
+   turn the exercise into copying.
+
+   One sentence is built from one deck, never a mixture. A sentence that
+   welded a word from your kitchen deck onto one from your legal deck would be
+   a strange thing to hear, and the deck it was built from is written onto the
+   entry, so a sentence only ever comes back while its deck is ticked. */
 
 import * as store from './store.js';
 import * as storage from './storage.js';
-import { isDictatable, inScope, pickWeighted, recordResult, SCORE_LABEL } from './deck.js';
+import { isDictatable, inScope, pickWeighted, pickGroup, recordResult, SCORE_LABEL } from './deck.js';
 import { words, contains, diff, escapeHtml, scoreMark } from './text.js';
 import { sidecarText, formatWait, QuotaError } from './gemini.js';
 import { describe } from './tab-settings.js';
@@ -70,7 +75,13 @@ export function init() {
   setSeg('dc-scope', 'scope', scope);
   setSeg('dc-rate', 'rate', '1');
 
-  store.subscribe('deck', renderBankInfo);
+  store.subscribe('deck', () => {
+    renderBankInfo();
+    /* Same rule as the typing tab: a sentence from a deck that has just been
+       unticked is no longer something to be asked, unless it has already been
+       answered and what is on screen is the marking. */
+    if (current && !answered && !inBankScope(current)) fromBank();
+  });
   store.subscribe('folder', () => { gate(); renderBankInfo(); });
   store.subscribe('settings', renderQuota);
   ticker = setInterval(renderQuota, 1000);
@@ -81,8 +92,8 @@ export function onShow() {
   gate();
   renderBankInfo();
   if (!current && canRun()) {
-    if (store.state.manifest.length) fromBank();
-    else idle('Nothing in the bank yet. Write the first sentence — it costs one call to each model.');
+    if (store.state.manifest.some(inBankScope)) fromBank();
+    else idle('Nothing banked for the decks you have ticked. Write the first sentence — it costs one call to each model, and it will be built from one deck and tagged with it.');
   }
 }
 
@@ -125,15 +136,37 @@ function gate() {
 
 /* ── pool ────────────────────────────────────────────────────────────── */
 
+/* The ticked decks, kept apart: a sentence is written from one of them, so the
+   groups must not be flattened before the deck is chosen. */
+function groups() {
+  return store.practiceGroups()
+    .map((g) => ({ name: g.name, cards: g.cards.filter((c) => isDictatable(c) && inScope(c, scope)) }))
+    .filter((g) => g.cards.length);
+}
+
 function pool() {
-  return store.state.cards.filter((c) => isDictatable(c) && inScope(c, scope));
+  return groups().flatMap((g) => g.cards);
+}
+
+/* Banked sentences from decks that are no longer ticked stay on disk but out
+   of rotation. Sentences made before decks were tagged carry no deck at all;
+   those are placed by their target words instead, so an old bank keeps
+   working rather than vanishing. */
+function inBankScope(entry) {
+  if (entry.deck) return store.isPracticeDeck(entry.deck);
+  const known = new Set(store.practiceCards().map((c) => c.front));
+  return (entry.terms || []).some((t) => known.has(t));
 }
 
 function renderBankInfo() {
-  const dictatable = store.state.cards.filter(isDictatable).length;
-  const p = pool().length;
-  $('dc-bank').textContent =
-    `${store.state.manifest.length} in bank · ${p} of ${dictatable} usable cards in scope`;
+  const dictatable = store.practiceCards().filter(isDictatable).length;
+  const banked = store.state.manifest.filter(inBankScope).length;
+  const decks = store.practiceDecks();
+  $('dc-bank').textContent = [
+    `${banked} of ${store.state.manifest.length} in bank`,
+    `${pool().length} of ${dictatable} usable cards in scope`,
+    decks.length === 1 ? `deck ${decks[0]}` : `${decks.length} decks ticked`,
+  ].join(' · ');
 }
 
 /* ── the budget readout ──────────────────────────────────────────────── */
@@ -162,16 +195,19 @@ function renderQuota() {
 
 async function generate() {
   if (busy) return;
-  const p = pool();
-  if (!p.length) {
-    showError(store.state.cards.length
-      ? 'No cards in this scope can be used for dictation. Widen the filter, or check the Flashcards tab — entries like "X vs Y" or "verb + noun" have no single phrase to listen for, so they are skipped.'
-      : 'Add some cards in the Flashcards tab first.');
+  const gs = groups();
+  if (!gs.length) {
+    showError(store.practiceCards().length
+      ? 'No cards in this scope can be used for dictation. Widen the filter, tick another deck in the Flashcards tab, or check the cards themselves — entries like "X vs Y" or "verb + noun" have no single phrase to listen for, so they are skipped.'
+      : 'Add some cards in the Flashcards tab first, or tick a deck that has some.');
     return;
   }
 
-  const n = Math.min(store.state.settings.termsPerSentence, p.length);
-  const terms = pickWeighted(p, n);
+  /* One deck, chosen by the same weighting that picks a card, so the decks
+     holding your weakest words come up most often. */
+  const group = pickGroup(gs);
+  const n = Math.min(store.state.settings.termsPerSentence, group.cards.length);
+  const terms = pickWeighted(group.cards, n);
 
   busy = true;
   showError('');
@@ -179,10 +215,10 @@ async function generate() {
   btn.innerHTML = '<span class="spinner"></span>Writing &amp; speaking';
   btn.disabled = true;
   $('dc-bank-btn').disabled = true;
-  idle(`Writing a sentence around ${terms.length} of your weakest words, then reading it aloud…`);
+  idle(`Writing a sentence around ${terms.length} of your weakest words from ${group.name}, then reading it aloud…`);
 
   try {
-    const { entry, wav, sidecar } = await store.client.generateCard(terms, store.state.manifest);
+    const { entry, wav, sidecar } = await store.client.generateCard(terms, store.state.manifest, group.name);
     if (store.state.persistent) {
       await storage.writeBlob(entry.file, wav);
       await storage.writeText(entry.text_file, sidecar);
@@ -211,14 +247,17 @@ function fromBank() {
   const bank = store.state.manifest;
   if (!bank.length) { idle('The bank is empty. Write the first sentence above.'); return; }
 
-  const wanted = new Set(pool().map((c) => c.front));
-  const scoped = bank.filter((e) => (e.terms || []).some((t) => wanted.has(t)));
-  let candidates = (scoped.length ? scoped : bank).filter((e) => !heard.has(e.id));
+  const scoped = bank.filter(inBankScope);
+  if (!scoped.length) {
+    idle('Nothing in the bank belongs to the decks you have ticked. Tick the deck those sentences were made from in the Flashcards tab, or write a new sentence above.');
+    return;
+  }
+  let candidates = scoped.filter((e) => !heard.has(e.id));
   if (!candidates.length) {
     /* Been through everything in scope this session; start over rather than
        refusing. */
     heard.clear();
-    candidates = scoped.length ? scoped : bank;
+    candidates = scoped;
   }
   const entry = candidates[Math.floor(Math.random() * candidates.length)];
   heard.add(entry.id);
@@ -226,7 +265,8 @@ function fromBank() {
 }
 
 function advance() {
-  if (store.state.manifest.length > 1 || !storage.getApiKey()) fromBank();
+  const banked = store.state.manifest.filter(inBankScope).length;
+  if (banked > 1 || !storage.getApiKey()) fromBank();
   else generate();
 }
 
@@ -253,6 +293,8 @@ async function loadCard(entry) {
   $('dc-meta').innerHTML = [
     escapeHtml(entry.id),
     `${wordCount} words`,
+    entry.deck ? `deck ${escapeHtml(entry.deck)}` : '',
+    entry.difficulty ? escapeHtml(entry.difficulty) : '',
     entry.voice ? `voice ${escapeHtml(entry.voice)}` : '',
     entry.language ? escapeHtml(entry.language) : '',
     `played ${entry.times_practiced || 0}×`,
@@ -348,10 +390,11 @@ function scoreTerms(usrWords) {
   const refWords = words(current.sentence);
   const chips = [];
   const rows = [];
-  let changed = false;
+  const changed = [];
 
   for (const termText of current.terms || []) {
-    const card = store.state.cards.find((c) => c.front === termText);
+    const found = store.findCard(termText, current.deck);
+    const card = found && found.card;
     if (!card) {
       chips.push(`<span class="chip">${escapeHtml(termText)}</span>`);
       rows.push(`<div>${escapeHtml(termText)} — no longer in the deck, not scored</div>`);
@@ -366,14 +409,14 @@ function scoreTerms(usrWords) {
     const ok = contains(usrWords, card.front);
     chips.push(`<span class="chip ${ok ? 'chip--ok' : 'chip--bad'}">${escapeHtml(card.front)}</span>`);
     const move = recordResult(card, ok);
-    changed = true;
+    changed.push(card);
     const moved = move.before !== move.after
       ? ` ${scoreMark(move.before)} → ${scoreMark(move.after, SCORE_LABEL[move.after].toLowerCase())}` : '';
     rows.push(`<div>${ok ? '✓' : '✗'} ${escapeHtml(card.front)} (${move.correct}/${move.encounters})${moved}</div>`);
   }
 
   $('dc-terms').innerHTML = chips.join('');
-  if (changed) store.cardAnswered();
+  if (changed.length) store.cardAnswered(...changed);
 
   return rows.length
     ? `<div class="notes-box" style="margin-top:12px"><strong>Scored</strong>${rows.join('')}</div>`

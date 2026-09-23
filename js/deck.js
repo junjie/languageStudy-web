@@ -54,23 +54,44 @@ export function today() {
   return new Date().toISOString().slice(0, 10);
 }
 
-/* Weighted draw, without replacement. A score-1 card is 25x likelier than a
-   score-5 one, which is what keeps practice on the weak material. */
+/* How much likelier this card is to come up than a mastered one. A score-1
+   card weighs 25 against a score-5 card's 1, which is what keeps practice on
+   the weak material. */
+export function cardWeight(card) {
+  return (6 - ((card && card.score) || 1)) ** 2;
+}
+
+function drawIndex(weights) {
+  const total = weights.reduce((a, b) => a + b, 0);
+  let r = Math.random() * total;
+  for (let i = 0; i < weights.length; i++) {
+    r -= weights[i];
+    if (r <= 0) return i;
+  }
+  return weights.length - 1;
+}
+
+/* Weighted draw, without replacement. */
 export function pickWeighted(pool, n = 1) {
   const rest = pool.slice();
   const out = [];
   while (out.length < n && rest.length) {
-    const weights = rest.map((c) => (6 - (c.score || 1)) ** 2);
-    const total = weights.reduce((a, b) => a + b, 0);
-    let r = Math.random() * total;
-    let idx = rest.length - 1;
-    for (let i = 0; i < rest.length; i++) {
-      r -= weights[i];
-      if (r <= 0) { idx = i; break; }
-    }
-    out.push(rest.splice(idx, 1)[0]);
+    out.push(rest.splice(drawIndex(rest.map(cardWeight)), 1)[0]);
   }
   return out;
+}
+
+/* Pick one group of cards — in practice one deck — from several.
+
+   Dictation builds each sentence from a single deck, so the deck has to be
+   chosen before the cards are. Weighting a deck by the sum of its cards'
+   weights makes that choice invisible: every card ends up exactly as likely
+   to be drawn as it would have been from one flat pool, so ticking a second
+   deck does not quietly halve how often the first one is practised. */
+export function pickGroup(groups) {
+  if (!groups.length) return null;
+  const weights = groups.map((g) => g.cards.reduce((sum, c) => sum + cardWeight(c), 0));
+  return groups[drawIndex(weights)];
 }
 
 export function inScope(card, scope) {

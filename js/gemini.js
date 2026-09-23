@@ -417,8 +417,16 @@ export function createClient({ getSettings, getApiKey, limiter }) {
   }
 
   /* One card: write it, check it, speak it. The voice is drawn once, so a
-     retry does not change speaker mid-sentence. */
-  async function generateCard(terms, manifest) {
+     retry does not change speaker mid-sentence.
+
+     `deck` is the single deck all the terms came from. It is recorded on the
+     entry, along with the difficulty the sentence was written at, because both
+     are properties of this audio file forever: the deck decides whether the
+     sentence may come back in a later session, and the difficulty is the one
+     thing about a banked sentence that cannot be re-read from the settings —
+     change the learner level tomorrow and yesterday's audio is still what it
+     always was. */
+  async function generateCard(terms, manifest, deck) {
     preflight();
     const s = getSettings();
     const voice = pickVoice(s);
@@ -434,6 +442,8 @@ export function createClient({ getSettings, getApiKey, limiter }) {
       sentence,
       english,
       terms: terms.map((t) => t.front),
+      deck: deck || '',
+      difficulty: s.learnerLevel || '',
       language: s.targetLanguage,
       text_model: s.textModel,
       tts_model: s.ttsModel,
@@ -453,6 +463,8 @@ export function sidecarText(entry) {
     entry.sentence,
     entry.english,
     `[terms] ${entry.terms.join(', ')}`,
+    entry.deck ? `[deck] ${entry.deck}` : '',
+    entry.difficulty ? `[difficulty] ${entry.difficulty}` : '',
     `[language] ${entry.language}`,
     `[voice] ${entry.voice}`,
     `[created] ${entry.created}`,

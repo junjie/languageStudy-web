@@ -159,9 +159,14 @@
     </div>
     <div class="block-body">
       <div class="row">
-        <label class="field" style="flex:1 1 220px"><span>Deck file</span>
-          <select id="deck-select"></select>
-        </label>
+        <div class="field deck-picker" style="flex:1 1 260px"><span>Deck file</span>
+          <button type="button" class="deck-toggle" id="deck-toggle" aria-expanded="false" aria-controls="deck-menu">
+            <span class="deck-toggle-name" id="deck-toggle-name">default.json</span>
+            <span class="deck-toggle-sub" id="deck-toggle-sub"></span>
+            <span class="deck-toggle-caret" aria-hidden="true">▾</span>
+          </button>
+          <div class="deck-menu" id="deck-menu" role="group" aria-label="Decks" hidden></div>
+        </div>
         <div class="row" style="align-self:flex-end;padding-bottom:1px">
           <button class="btn btn--sm" id="deck-new">New</button>
           <button class="btn btn--sm" id="deck-rename">Rename</button>
@@ -169,7 +174,9 @@
           <button class="btn btn--sm" id="deck-import">Import watchlist…</button>
         </div>
       </div>
-      <p class="note">This is the deck file itself: a JSON array, one object per card. <strong>front</strong> is the word in the language you are learning, <strong>back</strong> is its meaning; <strong>notes</strong> is optional. <strong>score</strong>, <strong>recent</strong> and <strong>last_seen</strong> are written by the practice tabs, so you can leave them out of a card you type by hand and they will be filled in.</p>
+      <p class="note">Open the deck menu and you get every deck in your folder, each with a <strong>tickbox</strong> in front of it. <strong>Ticking a deck puts its words into practice:</strong> the Typing and Dictation tabs draw from every ticked deck at once, and ignore the rest. Click a deck's <em>name</em> instead of its tickbox to open it in the editor below — opening a deck and practising it are separate things, so you can edit one deck while drilling another. At least one deck is always ticked; the last tick cannot be removed, because a practice tab with nothing to draw from has nothing to do.</p>
+      <p class="note">Dictation goes one step further: each sentence is written from the words of a <strong>single</strong> deck, never a mixture, and the audio is saved with the deck it came from and the <strong>learner level</strong> set in Settings at the time. That tag is what keeps a banked sentence in its lane — it only comes back up while its own deck is ticked — and it is a permanent record of the difficulty it was written at, even after you change that setting.</p>
+      <p class="note">Below is the deck file itself: a JSON array, one object per card. <strong>front</strong> is the word in the language you are learning, <strong>back</strong> is its meaning; <strong>notes</strong> is optional. <strong>score</strong>, <strong>recent</strong> and <strong>last_seen</strong> are written by the practice tabs, so you can leave them out of a card you type by hand and they will be filled in.</p>
       <textarea class="editor" id="deck-editor" spellcheck="false" aria-label="Deck contents as JSON"></textarea>
       <div class="row">
         <button class="btn btn--primary" id="deck-save">Save deck</button>
@@ -193,6 +200,7 @@
       <span class="hint" id="ty-pool"></span>
     </div>
     <div class="block-body">
+      <p class="note">Cards come from every deck ticked in the Flashcards tab, drawn together as one pool. Untick a deck there to take its words out of rotation without deleting anything.</p>
       <div class="row">
         <div class="seg" id="ty-scope" role="group" aria-label="Which cards to practise">
           <button data-scope="weak" aria-pressed="false">Weak</button>
@@ -231,6 +239,7 @@
       <span class="hint" id="dc-bank"></span>
     </div>
     <div class="block-body" id="dc-body">
+      <p class="note">Each sentence is built from the words of one deck — never a mixture — chosen from the decks ticked in the Flashcards tab. The audio is saved with that deck's name and the learner level from Settings beside it, so a banked sentence only comes back while its own deck is ticked, and always says what difficulty it was written at.</p>
       <div id="dc-gate"></div>
 
       <div id="dc-stage" hidden>

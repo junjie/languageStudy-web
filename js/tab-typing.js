@@ -40,7 +40,15 @@ export function init() {
     next();
   });
 
-  store.subscribe('deck', () => { renderPool(); if (!current) next(); });
+  /* Redrawn when the pool changes under it: a card whose deck has just been
+     unticked, or which was edited out of the deck file, must not stay on
+     screen as the thing being asked. An answered card stays put — the
+     feedback on it is about what has already happened, and saving that answer
+     is itself what fired this. */
+  store.subscribe('deck', () => {
+    renderPool();
+    if (!current || (!answered && !pool().includes(current))) next();
+  });
   next();
 }
 
@@ -55,13 +63,16 @@ function setSeg(id, key, value) {
   }
 }
 
+/* Every ticked deck at once — the Flashcards tab decides which those are. */
 function pool() {
-  return store.state.cards.filter((c) => inScope(c, scope));
+  return store.practiceCards().filter((c) => inScope(c, scope));
 }
 
 function renderPool() {
-  const p = pool();
-  $('ty-pool').textContent = `${p.length} of ${store.state.cards.length} cards in scope`;
+  const all = store.practiceCards();
+  const decks = store.practiceDecks();
+  $('ty-pool').textContent = `${pool().length} of ${all.length} cards in scope · `
+    + (decks.length === 1 ? `deck ${decks[0]}` : `${decks.length} decks ticked`);
 }
 
 /* ── the card ────────────────────────────────────────────────────────── */
@@ -91,6 +102,7 @@ function next() {
         <span>${correct}/${encounters || 0} recent</span>
         ${squares(current.recent)}
         <span class="spacer"></span>
+        ${store.practiceDecks().length > 1 ? `<span>${escapeHtml(store.deckOf(current))}</span>` : ''}
         <span>${current.last_seen ? 'last seen ' + current.last_seen : 'new card'}</span>
       </div>
       <div class="card-body">
@@ -123,13 +135,15 @@ function next() {
 }
 
 function emptyState() {
-  const total = store.state.cards.length;
+  const total = store.practiceCards().length;
+  const decks = store.practiceDecks();
+  const where = decks.length === 1 ? `the ticked deck (${escapeHtml(decks[0])})` : `the ${decks.length} ticked decks`;
   if (!total) {
     return `<div class="gate"><h3>No cards yet</h3>
-      <p>Add some in the Flashcards tab — it is a plain JSON list, and there is a three-card example already in it to copy the shape from.</p></div>`;
+      <p>There is nothing in ${where}. Add cards in the Flashcards tab — it is a plain JSON list, and there is a three-card example already in it to copy the shape from — or tick another deck in the deck menu there.</p></div>`;
   }
   return `<div class="gate"><h3>Nothing in scope</h3>
-    <p>All ${total} cards are stronger than this filter allows. Widen it to <strong>All</strong>, or practise more to move cards down.</p></div>`;
+    <p>All ${total} cards in ${where} are stronger than this filter allows. Widen it to <strong>All</strong>, tick another deck in the Flashcards tab, or practise more to move cards down.</p></div>`;
 }
 
 function squares(recent) {
@@ -171,7 +185,7 @@ function check() {
   $('ty-feedback').innerHTML = feedback(verdict, typed, expected, move);
   previous = { shown: current[shownSide], expected, typed, verdict, notes: current.notes };
   renderPrevious();
-  store.cardAnswered();
+  store.cardAnswered(current);
 }
 
 function feedback(verdict, typed, expected, move) {
