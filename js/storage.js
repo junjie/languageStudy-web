@@ -4,7 +4,8 @@
    one directory, laid out the same way whichever directory that turns out to
    be:
 
-     settings.json        models, limits, voices, language, prompts
+     settings.json        the model catalogue, which model does which job,
+                          voices, language, prompts
      decks/<slug>.json    one deck per file
      audio/manifest.json  the dictation bank index
      audio/quota.json     the rolling API call budget

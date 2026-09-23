@@ -3,7 +3,10 @@
 
 import * as storage from './storage.js';
 import * as store from './store.js';
-import { VOICES, DEFAULT_SENTENCE_PROMPT, DEFAULT_SPEECH_PROMPT, DEFAULT_SHADOW_PROMPT } from './defaults.js';
+import {
+  VOICES, MODEL_ROLES, rolesUsing,
+  DEFAULT_SENTENCE_PROMPT, DEFAULT_SPEECH_PROMPT, DEFAULT_SHADOW_PROMPT,
+} from './defaults.js';
 import { fillTemplate, sentenceVars, formatWait, GeminiError, QuotaError } from './gemini.js';
 import { serializeDeck } from './deck.js';
 import { serializeBundle, parseBundle, describeBundle, bundleFilename } from './bundle.js';
@@ -31,6 +34,7 @@ const SAMPLE_TERMS = [
 export function init() {
   wireStore();
   wireKey();
+  wireModels();
   wireFields();
   wirePrompts();
   wireVoices();
@@ -369,24 +373,18 @@ export function describe(e) {
 
 /* ── plain fields ────────────────────────────────────────────────────── */
 
+/* The plain settings: one input, one path, committed on change. The models
+   are not among them — they are a list with their own rules, in wireModels(),
+   and the three jobs are dropdowns filled from it. */
 const FIELDS = [
   ['set-language', 'targetLanguage', 'text'],
   ['set-level', 'learnerLevel', 'text'],
   ['set-note', 'languageNote', 'text'],
-  ['set-textmodel', 'textModel', 'text'],
-  ['set-ttsmodel', 'ttsModel', 'text'],
-  ['set-shadowmodel', 'shadowModel', 'text'],
   ['set-shadow-sounds', 'shadowSounds', 'text'],
   ['set-shadow-items', 'shadowItems', 'int'],
   ['set-wmin', 'sentenceWords.min', 'int'],
   ['set-wmax', 'sentenceWords.max', 'int'],
   ['set-terms', 'termsPerSentence', 'int'],
-  ['set-trpm', 'limits.textRpm', 'int'],
-  ['set-trpd', 'limits.textRpd', 'int'],
-  ['set-srpm', 'limits.ttsRpm', 'int'],
-  ['set-srpd', 'limits.ttsRpd', 'int'],
-  ['set-shrpm', 'limits.shadowRpm', 'int'],
-  ['set-shrpd', 'limits.shadowRpd', 'int'],
 ];
 
 function wireFields() {
@@ -424,6 +422,7 @@ function render() {
   if (document.activeElement !== sp) sp.value = s.prompts.sentence;
   if (document.activeElement !== pp) pp.value = s.prompts.speech;
   if (document.activeElement !== hp) hp.value = s.prompts.shadowing;
+  renderModels();
   renderVoices();
   renderShadowing();
   renderPreview();
@@ -513,9 +512,6 @@ function draftSettings() {
     targetLanguage: $('set-language').value.trim() || s.targetLanguage,
     learnerLevel: $('set-level').value.trim() || s.learnerLevel,
     languageNote: $('set-note').value,
-    textModel: $('set-textmodel').value.trim() || s.textModel,
-    ttsModel: $('set-ttsmodel').value.trim() || s.ttsModel,
-    shadowModel: $('set-shadowmodel').value.trim() || s.shadowModel,
     shadowSounds: $('set-shadow-sounds').value,
     shadowItems: Number($('set-shadow-items').value) || s.shadowItems,
     sentenceWords: {
@@ -530,23 +526,327 @@ function draftSettings() {
   };
 }
 
+/* ── the models, and what each one does ──────────────────────────────── */
+
+/* Which <select> carries which job. defaults.js names the jobs; this is the
+   only place that knows what they look like on the page. */
+const ROLE_FIELD = {
+  textModel: 'set-textmodel',
+  ttsModel: 'set-ttsmodel',
+  shadowModel: 'set-shadowmodel',
+};
+
+/* A row typed into but not yet stored. A model with no id is not a model, so
+   Add a model cannot write one into the settings — it puts an empty row on the
+   page and waits to see what is typed in it. */
+let draftRow = false;
+
+/* What the catalogue looked like when it was last drawn, so a settings change
+   that leaves the models alone — a language edit, a deck tick — does not
+   touch the rows at all. */
+let drawnModels = '';
+
+function wireModels() {
+  const list = $('model-list');
+  list.addEventListener('change', onModelEdit);
+  list.addEventListener('click', onModelClick);
+
+  $('model-add').addEventListener('click', () => {
+    draftRow = true;
+    renderModels();
+    const rows = list.querySelectorAll('input[data-k="id"]');
+    const last = rows[rows.length - 1];
+    if (last) last.focus();
+    setModelStatus('Type the model id exactly as Google spells it, then give it its limits.', '');
+  });
+
+  for (const [key] of MODEL_ROLES) {
+    $(ROLE_FIELD[key]).addEventListener('change', async (e) => {
+      await store.saveSettings({ [key]: e.target.value });
+      renderPreview();
+    });
+  }
+}
+
+/* An id, a per-minute limit or a per-day limit, committed on blur. The three
+   are one handler because they are one row: the limits belong to whatever id
+   is in front of them, and the id is what decides whether the row exists. */
+async function onModelEdit(e) {
+  const input = e.target;
+  const row = input.closest('.model-row');
+  if (!row || !input.dataset.k) return;
+  const at = Number(row.dataset.at);
+  const s = store.state.settings;
+  const models = s.models.map((m) => ({ ...m }));
+  /* The draft row sits one past the end of the stored list. */
+  const isDraft = at >= models.length;
+
+  if (input.dataset.k !== 'id') {
+    if (isDraft) return;
+    const value = Math.max(0, Math.round(Number(input.value) || 0));
+    models[at] = { ...models[at], [input.dataset.k]: value };
+    await store.saveSettings({ models });
+    renderModels(true);
+    setModelStatus(describeLimits(models[at]), 'is-ok');
+    return;
+  }
+
+  const id = input.value.trim();
+  const clash = models.some((m, i) => i !== at && m.id === id);
+
+  if (!id) {
+    draftRow = false;
+    renderModels(true);
+    setModelStatus(isDraft
+      ? 'Nothing added — the row was left empty.'
+      : 'A model has to have an id, so that one is unchanged. Use × to remove it.',
+    isDraft ? '' : 'is-warn');
+    return;
+  }
+  if (clash) {
+    renderModels(true);
+    setModelStatus(`${id} is already in the list. A model is entered once and can do as many jobs as you like — give it another job below rather than adding it twice.`, 'is-warn');
+    return;
+  }
+
+  if (isDraft) {
+    draftRow = false;
+    models.push({ id, rpm: 0, rpd: 0 });
+    await store.saveSettings({ models });
+    renderModels(true);
+    setModelStatus(`Added ${id}. It is unlimited until you give it limits, and idle until you give it a job below.`, 'is-ok');
+    return;
+  }
+
+  /* A rename. The jobs follow it: it is the same model, newly spelt, and a job
+     left pointing at the old spelling would name a model nobody has. */
+  const was = models[at].id;
+  if (was === id) return;
+  const moved = rolesUsing(s, was);
+  models[at] = { ...models[at], id };
+  const patch = { models };
+  for (const [key] of MODEL_ROLES) if (s[key] === was) patch[key] = id;
+  await store.saveSettings(patch);
+  renderModels(true);
+  setModelStatus(moved.length
+    ? `Renamed ${was} to ${id}. ${sentenceList(moved)} moved with it.`
+    : `Renamed ${was} to ${id}.`, 'is-ok');
+}
+
+async function onModelClick(e) {
+  const btn = e.target.closest('.model-drop');
+  if (!btn) return;
+  const at = Number(btn.closest('.model-row').dataset.at);
+  const s = store.state.settings;
+  const models = s.models.map((m) => ({ ...m }));
+  if (at >= models.length) {
+    draftRow = false;
+    renderModels(true);
+    setModelStatus('Nothing added.', '');
+    return;
+  }
+  const model = models[at];
+  /* A job pointing at a model nobody has is the one state the catalogue must
+     not reach, so a model in use is kept and the reason is said out loud.
+     Because every job always names a listed model, this is also what stops the
+     list from being emptied. */
+  const jobs = rolesUsing(s, model.id);
+  if (jobs.length) {
+    setModelStatus(`${model.id} is doing ${sentenceList(jobs).toLowerCase()}. Give ${jobs.length === 1 ? 'that job' : 'those jobs'} to another model first.`, 'is-warn');
+    return;
+  }
+  models.splice(at, 1);
+  await store.saveSettings({ models });
+  renderModels(true);
+  setModelStatus(`Removed ${model.id}. What it has already spent is still counted under Call budget until it ages out.`, 'is-ok');
+}
+
+/* `force` redraws even when nothing in the settings moved — which is exactly
+   what a refused edit needs, since the point is to put back the value the
+   settings still hold. */
+function renderModels(force = false) {
+  const s = store.state.settings;
+  const list = $('model-list');
+  const signature = JSON.stringify([s.models, draftRow, MODEL_ROLES.map(([k]) => s[k])]);
+
+  if (force || signature !== drawnModels) {
+    const caret = heldCaret(list);
+    list.innerHTML = [
+      '<div class="model-row model-head" aria-hidden="true">'
+        + '<span>Model id</span><span>Calls / min</span><span>Calls / day</span><span></span></div>',
+      ...s.models.map((m, at) => modelRow(m, at, rolesUsing(s, m.id))),
+      ...(draftRow ? [modelRow({ id: '', rpm: 0, rpd: 0 }, s.models.length, [])] : []),
+    ].join('');
+    drawnModels = signature;
+    restoreCaret(list, caret);
+  }
+
+  const used = new Set(MODEL_ROLES.map(([key]) => s[key]));
+  $('models-hint').textContent = s.models.length === used.size
+    ? `${plural(s.models.length, 'model')}, all in use`
+    : `${plural(s.models.length, 'model')}, ${used.size} in use`;
+
+  /* The standing description of the list. An edit says what it did instead,
+     after its save has emitted and been drawn — so the last thing written
+     here is the last thing that happened. */
+  setModelStatus(describeCatalogue(s), '');
+  renderRoles();
+}
+
+function describeCatalogue(s) {
+  const idle = s.models.filter((m) => !rolesUsing(s, m.id).length).map((m) => m.id);
+  if (idle.length) {
+    return `${sentenceList(idle)} ${idle.length === 1 ? 'is' : 'are'} listed but doing no job`
+      + `, which costs nothing — give ${idle.length === 1 ? 'it one' : 'them one'} below, or remove ${idle.length === 1 ? 'it' : 'them'}.`;
+  }
+  const counted = s.models.filter((m) => m.rpd);
+  if (counted.length < s.models.length) {
+    return `${plural(s.models.length, 'model')}, all in use, not all of them counted here.`;
+  }
+  const total = counted.reduce((n, m) => n + m.rpd, 0);
+  return `${plural(s.models.length, 'model')}, all in use, ${total} calls a day between them — each model's allowance is its own.`;
+}
+
+/* A rebuilt row is a new element, so the field someone had moved on to would
+   otherwise lose focus mid-edit. It is found again by which row and which
+   column it was, which survives everything but that row being removed. */
+function heldCaret(list) {
+  const el = document.activeElement;
+  if (!list.contains(el) || !el.dataset || !el.dataset.k) return null;
+  return { at: el.closest('.model-row').dataset.at, k: el.dataset.k };
+}
+
+function restoreCaret(list, caret) {
+  if (!caret) return;
+  const el = list.querySelector(`.model-row[data-at="${caret.at}"] input[data-k="${caret.k}"]`);
+  if (el) el.focus();
+}
+
+function modelRow(model, at, jobs) {
+  const id = escapeAttr(model.id);
+  return `<div class="model-row" data-at="${at}">
+    <label class="model-id">
+      <input type="text" data-k="id" value="${id}" spellcheck="false" autocomplete="off"
+             placeholder="gemini-3.6-flash" aria-label="Model id">
+      <em class="model-jobs${jobs.length ? '' : ' is-idle'}">${jobs.length ? jobs.join(' · ') : (model.id ? 'no job' : 'new model')}</em>
+    </label>
+    <label class="model-rpm"><span>/ min</span>
+      <input type="number" data-k="rpm" min="0" value="${model.rpm}" aria-label="Calls per minute${model.id ? ` for ${id}` : ''}">
+    </label>
+    <label class="model-rpd"><span>/ day</span>
+      <input type="number" data-k="rpd" min="0" value="${model.rpd}" aria-label="Calls per day${model.id ? ` for ${id}` : ''}">
+    </label>
+    <button class="model-drop" type="button" aria-label="Remove ${id || 'this row'}"
+            title="${jobs.length ? `${escapeAttr(sentenceList(jobs))} run${jobs.length > 1 ? '' : 's'} on this model — give that job to another one first` : 'Remove this model'}"${jobs.length ? ' disabled' : ''}>&times;</button>
+  </div>`;
+}
+
+function renderRoles() {
+  const s = store.state.settings;
+  const options = s.models
+    .map((m) => `<option value="${escapeAttr(m.id)}">${escapeAttr(m.id)}</option>`)
+    .join('');
+  for (const [key] of MODEL_ROLES) {
+    const sel = $(ROLE_FIELD[key]);
+    if (sel.innerHTML !== options) sel.innerHTML = options;
+    sel.value = s[key];
+  }
+  $('roles-hint').textContent =
+    `${plural(MODEL_ROLES.length, 'job')} across ${plural(new Set(MODEL_ROLES.map(([k]) => s[k])).size, 'model')}`;
+
+  /* Which models are doing more than one job, said plainly: it is the point of
+     the catalogue, and the one thing three dropdowns on their own hide. */
+  const shared = s.models
+    .map((m) => [m, rolesUsing(s, m.id)])
+    .filter(([, jobs]) => jobs.length > 1)
+    .map(([m, jobs]) => `${sentenceList(jobs).toLowerCase()} both run on ${m.id}, out of its one allowance`);
+
+  const el = $('roles-status');
+  if (!/tts|speech|audio/i.test(s.ttsModel)) {
+    /* A guess, and said as one — but the wrong model here is the expensive
+       mistake to make quietly: only the TTS models return audio at all. */
+    el.textContent = `${s.ttsModel} does not look like a speech model. Only Google's TTS models return audio, so the dictation tab would get a text reply it cannot play.`;
+    el.className = 'status is-warn';
+    return;
+  }
+  el.textContent = shared.length
+    ? `${capitalise(shared.join('; '))}.`
+    : 'Every job is on a model of its own, so none of them can spend another’s budget.';
+  el.className = 'status is-ok';
+}
+
+function describeLimits(model) {
+  const per = (n, unit) => (n ? `${n} per ${unit}` : `unlimited per ${unit}`);
+  return `${model.id}: ${per(model.rpm, 'minute')}, ${per(model.rpd, 'day')}.`;
+}
+
+function setModelStatus(text, cls) {
+  const el = $('models-status');
+  el.textContent = text;
+  el.className = 'status ' + (cls || '');
+}
+
+/* "Text", "Text and Speech", "Text, Speech and Shadowing". */
+function sentenceList(items) {
+  if (items.length <= 1) return items[0] || '';
+  return `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`;
+}
+
+function capitalise(text) {
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
 /* ── budget ──────────────────────────────────────────────────────────── */
 
+/* One line per model, not per job: two jobs on one model run one counter
+   down together, and a budget page that showed them apart would be showing
+   the same calls twice. Redrawn every second, so it is written into a string
+   first and only touched when something in it actually moved. */
+let drawnUsage = '';
+
 function renderQuota() {
-  const q = store.quotaReport();
   const s = store.state.settings;
-  const line = (label, u) =>
-    `${label} ${u.usedDay}/${u.rpd || '∞'} today, ${u.usedMinute}/${u.rpm || '∞'} this minute`;
-  const parts = [line('text', q.text), line('speech', q.tts)];
-  if (q.retryAfter > 0) parts.push(`blocked for ${formatWait(q.retryAfter)}`);
+  const q = store.quotaReport();
+
+  const html = s.models.map((m) => {
+    const u = store.limiter.usage(m.id, m.rpm, m.rpd);
+    const jobs = rolesUsing(s, m.id);
+    const bits = [
+      `<span class="usage-num">${u.usedDay}/${u.rpd || '∞'} today</span>`,
+      `<span class="usage-num">${u.usedMinute}/${u.rpm || '∞'} this minute</span>`,
+    ];
+    if (u.retryAfter > 0) bits.push(`<span class="usage-num">free in ${formatWait(u.retryAfter)}</span>`);
+    return `<div class="usage-row${u.retryAfter > 0 ? ' is-blocked' : ''}">`
+      + `<span class="usage-id">${escapeAttr(m.id)}`
+      + `<span class="usage-jobs"> ${jobs.length ? ' · ' + jobs.join(' · ') : ' · idle'}</span></span>`
+      + bits.join('')
+      + '</div>';
+  }).join('');
+
+  if (html !== drawnUsage) {
+    $('quota-usage').innerHTML = html;
+    drawnUsage = html;
+  }
+
+  /* The two things the budget is actually asked: how many more dictation
+     cards, and how many more shadowing sets. A card costs a text call and a
+     speech call; a set costs one shadowing call however many lines it holds. */
+  const parts = [
+    q.cardsLeftToday === null
+      ? 'new cards unlimited'
+      : `${plural(q.cardsLeftToday, 'new card')} left today`,
+    q.shadow.leftDay === null
+      ? 'shadowing sets unlimited'
+      : `${plural(q.shadow.leftDay, 'shadowing set')} left today`,
+  ];
+  if (q.retryAfter > 0) parts.push(`new cards blocked for ${formatWait(q.retryAfter)}`);
 
   const el = $('quota-status');
   el.textContent = parts.join('  ·  ');
   el.className = 'status ' + (q.retryAfter > 0 ? 'is-bad' : 'is-ok');
   $('quota-hint').textContent = q.cardsLeftToday === null
     ? 'unlimited'
-    : `${q.cardsLeftToday} new card${q.cardsLeftToday === 1 ? '' : 's'} left`;
-  void s;
+    : `${plural(q.cardsLeftToday, 'new card')} left`;
 }
 
 /* ── the read-aloud voice ────────────────────────────────────────────── */

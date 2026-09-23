@@ -12,7 +12,7 @@
    that a retry storm would eat a day's budget in a minute. */
 
 import { words, contains } from './text.js';
-import { VOICE_NAMES } from './defaults.js';
+import { VOICE_NAMES, modelLimits } from './defaults.js';
 import { buildGradingParts, readGrading, attachableClips } from './shadowing.js';
 
 const ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent';
@@ -227,20 +227,36 @@ export class RateLimiter {
      those models, and a shadowing budget that had run down must not stop you
      writing a sentence. */
   report(settings) {
-    const l = settings.limits;
-    const text = this.usage(settings.textModel, l.textRpm, l.textRpd);
-    const tts = this.usage(settings.ttsModel, l.ttsRpm, l.ttsRpd);
-    const shadow = this.usage(settings.shadowModel, l.shadowRpm, l.shadowRpd);
-    const lefts = [text.leftDay, tts.leftDay].filter((n) => n !== null);
+    const text = this.usageOf(settings, settings.textModel);
+    const tts = this.usageOf(settings, settings.ttsModel);
+    const shadow = this.usageOf(settings, settings.shadowModel);
     return {
       text,
       tts,
       shadow,
       retryAfter: Math.max(text.retryAfter, tts.retryAfter),
       canGenerate: text.retryAfter <= 0 && tts.retryAfter <= 0,
-      cardsLeftToday: lefts.length ? Math.min(...lefts) : null,
+      cardsLeftToday: cardsLeft(settings, text, tts),
     };
   }
+
+  /* usage() for a model named in the settings, at the limits the catalogue
+     gives that model. */
+  usageOf(settings, model) {
+    const { rpm, rpd } = modelLimits(settings, model);
+    return this.usage(model, rpm, rpd);
+  }
+}
+
+/* How many more cards today's budget holds. Normally the scarcer of the two
+   models, but one model may be given both jobs — and then each card spends two
+   of its calls, so what is left buys half as many. */
+function cardsLeft(settings, text, tts) {
+  if (settings.textModel === settings.ttsModel) {
+    return text.leftDay === null ? null : Math.floor(text.leftDay / 2);
+  }
+  const lefts = [text.leftDay, tts.leftDay].filter((n) => n !== null);
+  return lefts.length ? Math.min(...lefts) : null;
 }
 
 export function formatWait(seconds) {
@@ -367,10 +383,11 @@ export function createClient({ getSettings, getApiKey, limiter }) {
   /* One text call, one token, to prove a key works. */
   async function testKey() {
     const s = getSettings();
+    const l = modelLimits(s, s.textModel);
     const data = await call(s.textModel, {
       contents: [{ parts: [{ text: 'Reply with the single word: ok' }] }],
       generationConfig: { maxOutputTokens: 8 },
-    }, s.limits.textRpm, s.limits.textRpd);
+    }, l.rpm, l.rpd);
     return firstText(data).slice(0, 40);
   }
 
@@ -378,21 +395,23 @@ export function createClient({ getSettings, getApiKey, limiter }) {
      available: a sentence nothing can speak is a wasted text call. */
   function preflight() {
     const s = getSettings();
-    const textWhy = limiter.why(s.textModel, s.limits.textRpm, s.limits.textRpd);
-    const ttsWhy = limiter.why(s.ttsModel, s.limits.ttsRpm, s.limits.ttsRpd);
-    const why = textWhy || ttsWhy;
+    const text = modelLimits(s, s.textModel);
+    const tts = modelLimits(s, s.ttsModel);
+    const why = limiter.why(s.textModel, text.rpm, text.rpd)
+      || limiter.why(s.ttsModel, tts.rpm, tts.rpd);
     if (why) throw new QuotaError(why, limiter.report(s).retryAfter);
   }
 
   async function writeSentence(terms) {
     const s = getSettings();
     const prompt = fillTemplate(s.prompts.sentence, sentenceVars(s, terms));
+    const l = modelLimits(s, s.textModel);
     const problems = [];
     for (let attempt = 0; attempt < 3; attempt++) {
       const data = await call(s.textModel, {
         contents: [{ parts: [{ text: prompt }] }],
         generationConfig: { temperature: 1.0, maxOutputTokens: 2048 },
-      }, s.limits.textRpm, s.limits.textRpd, attempt ? 75 : 0);
+      }, l.rpm, l.rpd, attempt ? 75 : 0);
       const { target, english } = parseSentence(firstText(data));
       const why = sentenceProblem(target, terms, s);
       if (!why) return { sentence: target, english };
@@ -404,6 +423,7 @@ export function createClient({ getSettings, getApiKey, limiter }) {
   async function speak(sentence, voice) {
     const s = getSettings();
     const text = fillTemplate(s.prompts.speech, { sentence });
+    const l = modelLimits(s, s.ttsModel);
     for (let attempt = 0; attempt < 2; attempt++) {
       const data = await call(s.ttsModel, {
         contents: [{ parts: [{ text }] }],
@@ -411,7 +431,7 @@ export function createClient({ getSettings, getApiKey, limiter }) {
           responseModalities: ['AUDIO'],
           speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: voice } } },
         },
-      }, s.limits.ttsRpm, s.limits.ttsRpd, attempt ? 75 : 0);
+      }, l.rpm, l.rpd, attempt ? 75 : 0);
 
       const blocked = (data.promptFeedback || {}).blockReason;
       if (!blocked) return firstAudio(data);
@@ -517,13 +537,14 @@ export function createClient({ getSettings, getApiKey, limiter }) {
       },
     });
 
+    const l = modelLimits(s, s.shadowModel);
     let data;
     try {
-      data = await call(s.shadowModel, body(), s.limits.shadowRpm, s.limits.shadowRpd);
+      data = await call(s.shadowModel, body(), l.rpm, l.rpd);
     } catch (e) {
       if (!looksLikeThinkingRejection(e) || thinkingRejected) throw e;
       thinkingRejected = true;
-      data = await call(s.shadowModel, body(), s.limits.shadowRpm, s.limits.shadowRpd);
+      data = await call(s.shadowModel, body(), l.rpm, l.rpd);
     }
 
     const graded = readGrading(firstText(data), itemCount);
@@ -538,8 +559,9 @@ export function createClient({ getSettings, getApiKey, limiter }) {
   /* Refuses before spending, the way preflight() does for a dictation card. */
   function shadowPreflight() {
     const s = getSettings();
-    const why = limiter.why(s.shadowModel, s.limits.shadowRpm, s.limits.shadowRpd);
-    if (why) throw new QuotaError(why, limiter.waitFor(s.shadowModel, s.limits.shadowRpm, s.limits.shadowRpd));
+    const l = modelLimits(s, s.shadowModel);
+    const why = limiter.why(s.shadowModel, l.rpm, l.rpd);
+    if (why) throw new QuotaError(why, limiter.waitFor(s.shadowModel, l.rpm, l.rpd));
   }
 
   return { call, testKey, generateCard, preflight, gradeShadowing, shadowPreflight };

@@ -359,6 +359,116 @@ textarea { resize: vertical; font: 13px/1.6 var(--mono); }
 .s-4 { background: var(--s4); }
 .s-5 { background: var(--s5); }
 
+/* ── the model catalogue ──────────────────────────────────────── */
+
+/* A ruled table, built from the same hairlines as everything else: an id that
+   takes whatever width is left, two narrow number columns, and the remove
+   button. The header row is labels only, so it carries no border of its own
+   and sits directly on the first row's rule. */
+.model-list {
+  border: 1px solid var(--line);
+}
+.model-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 96px 96px 30px;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+}
+.model-row:last-child { border-bottom: 0; }
+/* A grid item will not shrink below the intrinsic width of an <input>, which
+   for a number field is wider than the column it is given — so every cell is
+   told it may. */
+.model-row > * { min-width: 0; }
+.model-row input[type='text'] { font-family: var(--mono); font-size: 12.5px; }
+.model-row input[type='number'] { text-align: right; }
+/* The column headings carry these two on a wide screen, so the labels beside
+   the fields would only repeat them. On a phone the headings are gone and
+   these are the only thing saying which number is which. */
+.model-rpm > span, .model-rpd > span { display: none; }
+
+.model-head {
+  padding-top: 7px;
+  padding-bottom: 6px;
+  background: var(--surface-hi);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--fg-dim);
+}
+.model-head span:nth-child(2), .model-head span:nth-child(3) { text-align: right; }
+
+/* Which jobs this model is doing, under its id. It is the one thing that makes
+   a shared model legible at a glance — and the reason a row cannot be removed. */
+.model-jobs {
+  display: block;
+  font-size: 11px;
+  color: var(--fg-dim);
+  margin-top: 3px;
+  min-height: 14px;
+}
+.model-jobs.is-idle { color: var(--fg-dim); font-style: italic; }
+
+.model-drop {
+  background: none;
+  border: 1px solid transparent;
+  color: var(--fg-dim);
+  font: 15px/1 var(--sans);
+  padding: 5px 0;
+  cursor: pointer;
+}
+.model-drop:hover:not(:disabled) { color: var(--bad); border-color: var(--bad); }
+.model-drop:disabled { opacity: 0.3; cursor: not-allowed; }
+
+/* ── what the budget has been spent on ────────────────────────── */
+
+.usage {
+  border: 1px solid var(--line);
+  font: 12px/1.5 var(--mono);
+}
+.usage-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  align-items: baseline;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--line);
+}
+.usage-row:last-child { border-bottom: 0; }
+.usage-id { color: var(--fg-warm); flex: 1 1 200px; min-width: 0; overflow-wrap: anywhere; }
+.usage-num { color: var(--fg-muted); }
+.usage-row.is-blocked .usage-id { color: var(--bad); }
+.usage-jobs { color: var(--fg-dim); font-family: var(--sans); font-size: 11px; }
+
+@media (max-width: 560px) {
+  /* The numbers keep their width; a model id is long enough that squeezing it
+     into what is left would show four characters of it. So it takes the first
+     line whole and the two limits sit under it, pushed right against the
+     remove button — which is where the header would have put them anyway. */
+  .model-row {
+    grid-template-columns: minmax(0, 1fr) 76px 76px 26px;
+    column-gap: 6px;
+    row-gap: 6px;
+  }
+  .model-id { grid-column: 1 / -1; grid-row: 1; }
+  .model-rpm { grid-column: 2; grid-row: 2; }
+  .model-rpd { grid-column: 3; grid-row: 2; }
+  .model-drop { grid-column: 4; grid-row: 2; align-self: end; }
+  .model-head { display: none; }
+  .model-rpm > span, .model-rpd > span {
+    display: block;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    color: var(--fg-dim);
+    text-align: right;
+    margin-bottom: 4px;
+  }
+}
+
 /* ── voices ───────────────────────────────────────────────────── */
 
 .voice-grid {

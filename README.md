@@ -117,9 +117,11 @@ recordings** in Settings removes the lot and leaves the sentence bank alone.
 ### What it costs
 
 **One call per set**, however many lines are in it, because every recording
-goes up together. It has its own model and its own per-minute and per-day
-limits in Settings, separate from the dictation budget — a shadowing budget
-that has run down cannot stop you writing a sentence, and vice versa.
+goes up together. Shadowing is one of the three jobs you assign a model to in
+Settings. Give it a model of its own and its budget is its own — a shadowing
+budget that has run down cannot stop you writing a sentence, and vice versa.
+Give it the same model as the text job, which is the default, and the two share
+that model's allowance, exactly as they already do at Google's end.
 
 Recording and listening back need no key at all. The key buys the feedback, not
 the practice.
@@ -237,7 +239,8 @@ the editor.
 The app keeps everything in one directory and creates what it needs:
 
 ```
-settings.json          models, limits, voices, language, prompts,
+settings.json          the model catalogue and its limits, which model
+                       does which job, voices, language, prompts,
                        and which decks are ticked for practice
 decks/<name>.json      one file per deck
 audio/manifest.json    the sentence bank index — Dictation and Shadowing
@@ -370,17 +373,33 @@ It is still a key in a browser, so treat it as one: use a key with no billing
 attached, or set a spend cap on the project. If you need a key that a user must
 never see, you need a server, and this project deliberately does not have one.
 
-### Call budget
+### Models, and the call budget
 
-Free-tier Gemini quotas are small, so the app counts calls itself and refuses
-locally before a request goes out. Limits are per model, per minute and per day,
-and are editable in Settings (`0` means unlimited). The windows roll over the
-last 60 seconds and the last 24 hours rather than resetting at midnight: Google
-resets on Pacific time, and a rolling window can only ever be stricter than the
-real quota, never looser.
+**Settings → Models** is a list: every Gemini model you use, entered once, each
+with its own calls-per-minute and calls-per-day. **Settings → What each model
+does** then hands out the three jobs — writing the sentence, speaking it, and
+listening to your shadowing — from that list.
 
-Counts live in `audio/quota.json` so a reload does not hand out a fresh day's
-worth. **Reset budget** in Settings clears them.
+The limits belong to the model, not to the job, because that is how Google
+counts them. So `gemini-3.6-flash` is typed once even when it both writes
+sentences and grades shadowing, and those two jobs run the one counter down
+together. Only the speech job really has to differ: only the TTS models return
+audio.
+
+Free-tier quotas are small, so the app counts calls itself and refuses locally
+before a request goes out (`0` means unlimited — the right answer for a paid
+key, and the one case where Google gets to be the one who says no). The windows
+roll over the last 60 seconds and the last 24 hours rather than resetting at
+midnight: Google resets on Pacific time, and a rolling window can only ever be
+stricter than the real quota, never looser.
+
+Counts live in `audio/quota.json`, keyed by model, so a reload does not hand out
+a fresh day's worth. **Reset budget** in Settings clears them.
+
+A settings file written before the catalogue existed — one with a `limits`
+object holding a set of numbers per job — is read once and converted: each job's
+model is entered in the list, a model doing two jobs appears once, and its two
+old allowances are reconciled into one.
 
 One new sentence normally costs one text call and one speech call, and at worst
 three and two: a sentence is checked before it is spoken, and rewritten if it is

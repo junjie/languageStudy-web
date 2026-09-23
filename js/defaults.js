@@ -102,18 +102,50 @@ Rules:
 export const DEFAULT_SHADOW_SOUNDS =
   'the six tones (ngang, huyền, sắc, hỏi, ngã, nặng), the unreleased final consonants -c, -ch, -t, -p, -n, -ng, and the vowels ư, ơ and â';
 
+/* The three jobs a model can be given, in the order they are shown, each
+   paired with the settings key that names the model doing it. Every part of
+   the app that asks "which models are in use?" walks this list, so adding a
+   fourth job is a line here rather than a search for the other two. */
+export const MODEL_ROLES = [
+  ['textModel', 'Text', 'writes the sentence'],
+  ['ttsModel', 'Speech', 'reads it aloud'],
+  ['shadowModel', 'Shadowing', 'listens to you'],
+];
+
+/* The catalogue a fresh install starts with: two models, because the default
+   text model and the default shadowing model are the same one and a model is
+   listed once however many jobs it does. The numbers are Google's free tier.
+   0 means unlimited. Raise them for a paid key. */
+export const DEFAULT_MODELS = [
+  { id: 'gemini-3.6-flash', rpm: 4, rpd: 20 },
+  { id: 'gemini-3.1-flash-tts-preview', rpm: 2, rpd: 10 },
+];
+
+/* What settings.json held before the catalogue existed: one set of limits per
+   job rather than per model. Kept only to migrate such a file — see
+   modelsFromLegacyLimits(). Nothing written today has a `limits` key. */
+export const LEGACY_LIMITS = {
+  textRpm: 4, textRpd: 20, ttsRpm: 2, ttsRpd: 10, shadowRpm: 2, shadowRpd: 10,
+};
+
 export const DEFAULT_SETTINGS = {
   targetLanguage: 'Vietnamese',
   learnerLevel: 'intermediate',
   languageNote: 'Southern register, everyday spoken style.',
+  /* The catalogue: every model in use, listed once, each with the limits that
+     belong to it. Google counts calls per model, so the limits are a property
+     of the model and not of the job it is doing — which is the whole reason
+     this is a list rather than three sets of numbers. */
+  models: DEFAULT_MODELS.map((m) => ({ ...m })),
+  /* Which model does which job. Each names an id in `models`; two jobs may
+     name the same one, and then they share its allowance, exactly as they do
+     at Google's end. */
   textModel: 'gemini-3.6-flash',
   ttsModel: 'gemini-3.1-flash-tts-preview',
-  /* Shadowing grades a whole set in one call, so it gets its own model and its
-     own budget: the call carries ten audio clips and has nothing in common
-     with writing a sentence. */
+  /* Shadowing is its own job: the call carries ten audio clips and has nothing
+     in common with writing a sentence. It defaults to the same model as the
+     text job, and so by default to the same allowance. */
   shadowModel: 'gemini-3.6-flash',
-  /* Google's free-tier limits. 0 means unlimited. Raise them for a paid key. */
-  limits: { textRpm: 4, textRpd: 20, ttsRpm: 2, ttsRpd: 10, shadowRpm: 2, shadowRpd: 10 },
   termsPerSentence: 3,
   sentenceWords: { min: 8, max: 16 },
   /* How many lines a shadowing set asks for. A set is whatever is actually
@@ -179,11 +211,107 @@ export const STARTER_DECK = [
   },
 ];
 
+/* ── the model catalogue ─────────────────────────────────────────────── */
+
+/* One row of the catalogue, made safe: an id with no surrounding space, and
+   two whole counts at or above zero. Returns null for a row with no id, since
+   a limit that names no model belongs to nothing. */
+function normalizeModel(raw) {
+  const id = String((raw && raw.id) || '').trim();
+  if (!id) return null;
+  return { id, rpm: count(raw && raw.rpm), rpd: count(raw && raw.rpd) };
+}
+
+function count(value) {
+  const n = Math.round(Number(value));
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+/* Two limits for the same model, reconciled. 0 is unlimited, so it wins over
+   any number rather than losing to it as Math.max would have it; otherwise the
+   larger is kept, because both jobs were already drawing on one bucket at
+   Google's end and the bucket is at least as big as the larger claim. */
+function mergeLimit(a, b) {
+  if (!a || !b) return 0;
+  return Math.max(a, b);
+}
+
+/* The catalogue a settings file written before it existed implies: the model
+   each job was pointed at, carrying the limits that job was given. A model
+   doing two jobs comes out once, with the two sets of limits reconciled —
+   which is the change this migration exists to make. */
+function modelsFromLegacyLimits(s, loaded) {
+  const limits = { ...LEGACY_LIMITS, ...((loaded && loaded.limits) || {}) };
+  const byRole = {
+    textModel: { rpm: limits.textRpm, rpd: limits.textRpd },
+    ttsModel: { rpm: limits.ttsRpm, rpd: limits.ttsRpd },
+    shadowModel: { rpm: limits.shadowRpm, rpd: limits.shadowRpd },
+  };
+  return MODEL_ROLES.map(([key]) => ({ id: s[key], ...byRole[key] }));
+}
+
+/* The catalogue, deduplicated by id and guaranteed to hold every model a job
+   names — so a dropdown can be filled straight from it and a role can never
+   point at a model that is not in the list. A model that appears twice keeps
+   its first row's position and the two rows' limits reconciled. */
+export function normalizeModels(list, roles) {
+  const out = [];
+  const at = new Map();
+  for (const raw of Array.isArray(list) ? list : []) {
+    const model = normalizeModel(raw);
+    if (!model) continue;
+    const seen = at.get(model.id);
+    if (seen === undefined) {
+      at.set(model.id, out.length);
+      out.push(model);
+    } else {
+      out[seen].rpm = mergeLimit(out[seen].rpm, model.rpm);
+      out[seen].rpd = mergeLimit(out[seen].rpd, model.rpd);
+    }
+  }
+  /* A job whose model is missing from the catalogue would otherwise be
+     unbudgeted and unpickable. It is added rather than reassigned: the id is
+     what the user typed, and this app never quietly calls a model they did not
+     name. Unlimited, because nothing here knows what its real limits are. */
+  for (const [key] of MODEL_ROLES) {
+    const id = String((roles && roles[key]) || '').trim();
+    if (!id || at.has(id)) continue;
+    at.set(id, out.length);
+    out.push({ id, rpm: 0, rpd: 0 });
+  }
+  return out.length ? out : DEFAULT_MODELS.map((m) => ({ ...m }));
+}
+
+/* What this model may spend, from the catalogue. A model the catalogue does
+   not know is unlimited here: the local count is a courtesy that keeps you
+   from being refused by Google, never the authority on what is allowed. */
+export function modelLimits(settings, id) {
+  const hit = (settings.models || []).find((m) => m.id === id);
+  return hit ? { rpm: hit.rpm, rpd: hit.rpd } : { rpm: 0, rpd: 0 };
+}
+
+/* Which jobs this model is doing, as their labels. Empty means nothing points
+   at it — which is allowed, and is what makes a model safe to remove. */
+export function rolesUsing(settings, id) {
+  return MODEL_ROLES.filter(([key]) => settings[key] === id).map(([, label]) => label);
+}
+
 /* Merge loaded settings over the defaults, one level into the nested objects.
    Anything the user's file does not mention keeps its default. */
 export function withDefaults(loaded) {
   const s = { ...DEFAULT_SETTINGS, ...(loaded || {}) };
-  s.limits = { ...DEFAULT_SETTINGS.limits, ...((loaded && loaded.limits) || {}) };
+  /* Every job names a model by id; a blank one falls back to the default
+     rather than to nothing, since the catalogue is built from these. */
+  for (const [key] of MODEL_ROLES) {
+    s[key] = String(s[key] || '').trim() || DEFAULT_SETTINGS[key];
+  }
+  /* A settings file from before the catalogue has per-job limits and no models
+     list. Those limits are read once, here, and are not written back: from now
+     on the limits belong to the model. */
+  s.models = normalizeModels(
+    Array.isArray(loaded && loaded.models) ? loaded.models : modelsFromLegacyLimits(s, loaded),
+    s);
+  delete s.limits;
   s.sentenceWords = { ...DEFAULT_SETTINGS.sentenceWords, ...((loaded && loaded.sentenceWords) || {}) };
   s.prompts = { ...DEFAULT_SETTINGS.prompts, ...((loaded && loaded.prompts) || {}) };
   s.shadowSources = { ...DEFAULT_SETTINGS.shadowSources, ...((loaded && loaded.shadowSources) || {}) };
