@@ -86,7 +86,7 @@ export function init() {
     else if (hit('#ty-notes-cancel')) renderNotes(false);
   });
   $('ty-card').addEventListener('keydown', (e) => {
-    if (e.target.id !== 'ty-notes-input') return;
+    if (!e.target.closest('.card-edit')) return;
     if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); saveNotes(); }
     else if (e.key === 'Escape') { e.preventDefault(); renderNotes(false); }
   });
@@ -500,23 +500,32 @@ function feedback(verdict, typed, expected, move) {
 
 /* ── notes ───────────────────────────────────────────────────────────── */
 
-/* Notes can be written once the card has been answered or revealed — before
-   that they would give the answer away. They are saved straight into the deck
-   the card came from, exactly as if typed into the Flashcards tab. */
+/* The card can be edited once it has been answered or revealed — before
+   that, any of it would give the answer away. Word, meaning and notes
+   together: cards are often written by a machine from someone's notes, and
+   a meaning that makes no sense is found out mid-practice, which is where it
+   should be fixable. Saved straight into the deck the card came from,
+   exactly as if typed into the Flashcards tab. */
 function notesHtml(editing) {
   if (editing) {
-    return `<textarea id="ty-notes-input" class="notes-edit" rows="3" spellcheck="false"
-      aria-label="Notes for this card">${escapeHtml(current.notes || '')}</textarea>
+    const lang = targetCode();
+    return `<div class="card-edit">
+      <label class="field"><span>${escapeHtml(store.state.settings.targetLanguage || 'Word')}</span>
+        <input type="text" id="ty-edit-front" lang="${lang}" spellcheck="false" autocomplete="off" value="${escapeHtml(current.front)}"></label>
+      <label class="field"><span>Meaning</span>
+        <input type="text" id="ty-edit-back" lang="en" spellcheck="false" autocomplete="off" value="${escapeHtml(current.back)}"></label>
+      <label class="field"><span>Notes</span>
+        <textarea id="ty-notes-input" class="notes-edit" rows="3" spellcheck="false">${escapeHtml(current.notes || '')}</textarea></label>
       <div class="row" style="margin-top:8px">
-        <button class="btn btn--sm btn--primary" id="ty-notes-save">Save notes</button>
+        <button class="btn btn--sm btn--primary" id="ty-notes-save">Save card</button>
         <button class="btn btn--sm" id="ty-notes-cancel">Cancel</button>
-        <span class="note">⌘ / Ctrl + Enter to save · Esc to cancel</span>
-      </div>`;
+        <span class="note" id="ty-edit-note">⌘ / Ctrl + Enter to save · Esc to cancel</span>
+      </div></div>`;
   }
   const box = current.notes
     ? `<div class="notes-box">${escapeHtml(current.notes)}</div>` : '';
   return `${box}<div class="row" style="margin-top:8px">
-    <button class="btn btn--sm" id="ty-notes-edit">${current.notes ? 'Edit notes' : 'Add notes'}</button></div>`;
+    <button class="btn btn--sm" id="ty-notes-edit">Edit card</button></div>`;
 }
 
 function renderNotes(editing) {
@@ -524,7 +533,7 @@ function renderNotes(editing) {
   if (!area) return;
   area.innerHTML = notesHtml(editing);
   if (editing) {
-    const box = $('ty-notes-input');
+    const box = $('ty-edit-back');
     box.focus();
     box.selectionStart = box.selectionEnd = box.value.length;
   } else {
@@ -535,11 +544,29 @@ function renderNotes(editing) {
 async function saveNotes() {
   const box = $('ty-notes-input');
   if (!box || !current) return;
+  const front = $('ty-edit-front').value.trim();
+  const back = $('ty-edit-back').value.trim();
+  /* The same rule as the deck file: a card needs both sides. */
+  if (!front || !back) {
+    const note = $('ty-edit-note');
+    note.textContent = 'A card needs both the word and its meaning.';
+    note.style.color = 'var(--bad)';
+    return;
+  }
   const text = box.value.trim();
+  current.front = front;
+  current.back = back;
   if (text) current.notes = text;
   else delete current.notes;
-  /* The Last card panel keeps its own copy; keep it in step. */
-  if (justAnswered) justAnswered.notes = current.notes;
+
+  /* Everything on screen that quoted the old card follows it: the prompt,
+     the answer an Accept would be judged against, and Last card's copy. */
+  const prompt = document.getElementById('ty-prompt');
+  if (prompt) prompt.textContent = current[shownSide];
+  const expected = shownSide === 'front' ? current.back : current.front;
+  for (const el of document.querySelectorAll('#ty-feedback .verdict .reveal')) el.textContent = expected;
+  if (last) last.expected = expected;
+  if (justAnswered) Object.assign(justAnswered, { shown: current[shownSide], expected, notes: current.notes });
   renderNotes(false);
   /* Written back to this card's own deck, which in a multi-deck session is
      rarely the one open in the editor. */

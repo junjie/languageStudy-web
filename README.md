@@ -55,12 +55,12 @@ your spelling and tones are marked, a tone slip goes on the Accents list, and
 the card then asks for the meaning, which is what it is scored on. With nothing
 typed, the button offers *Show answer*, which gives up on a card and counts it
 as a miss; type anything and it becomes *Check*. Enter only ever checks, so a
-stray one cannot give a card up. Once a card has been answered you can edit its
-**notes** in place, and a meaning the app marked wrong can be **accepted** —
-which counts it right and saves it on the card as another way of saying the same
-thing. A word you typed in the language you are learning can be **marked right**
-instead: it counts this once and nothing is saved, so the card keeps the form it
-was written in.
+stray one cannot give a card up. Once a card has been answered, **Edit card**
+lets you fix its word, meaning or notes in place, and a meaning the app marked
+wrong can be **accepted** — which counts it right and saves it on the card as
+another way of saying the same thing. A word you typed in the language you are
+learning can be **marked right** instead: it counts this once and nothing is
+saved, so the card keeps the form it was written in.
 
 **Dictation** — a sentence is written around two or three of your weakest cards,
 spoken aloud, and diffed word by word against what you type. Needs an API key.
