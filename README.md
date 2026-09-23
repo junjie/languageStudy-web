@@ -48,20 +48,19 @@ which are missing.
 The word can also be **read aloud** by your device's own voice, free and
 offline; the button beside the speaker picks the voice and the speed, which
 helps where the voice is brisk, as Windows voices often are. With that on, a
-word that is the prompt is hidden behind a bar and heard, and the card has two
-boxes. The first takes what you hear: *Check* marks your spelling and tones
-syllable by syllable, a tone slip goes on the Accents list, and the word is
-uncovered; with nothing typed its button is *Show word*, which skips it. The
-second takes the meaning, which is what the card is scored on, and can be
-answered at any point. With nothing typed, the button offers *Show answer*,
-which gives up on a card and counts it as a miss; type anything and it becomes
-*Check*. Enter only ever checks, so a stray one cannot give a card up. Once a
-card has been answered, **Edit card** lets you fix its word, meaning or notes in
-place, and a meaning the app marked wrong can be **accepted** — which counts it
-right and saves it on the card as another way of saying the same thing. A word
-you typed in the language you are learning can be **marked right** instead: it
-counts this once and nothing is saved, so the card keeps the form it was written
-in.
+word that is the prompt is heard, not shown: in its place is a box to type what
+you hear. *Check* marks your spelling and tones syllable by syllable, a tone
+slip goes on the Accents list, and the word takes the box's place; with nothing
+typed the button is *Show word*, which skips it. The box below takes the
+meaning, which is what the card is scored on, and can be answered at any point.
+With nothing typed, the button offers *Show answer*, which gives up on a card
+and counts it as a miss; type anything and it becomes *Check*. Enter only ever
+checks, so a stray one cannot give a card up. Once a card has been answered,
+**Edit card** lets you fix its word, meaning or notes in place, and a meaning
+the app marked wrong can be **accepted** — which counts it right and saves it on
+the card as another way of saying the same thing. A word you typed in the
+language you are learning can be **marked right** instead: it counts this once
+and nothing is saved, so the card keeps the form it was written in.
 
 **Dictation** — a sentence is written around two or three of your weakest cards,
 spoken aloud, and diffed word by word against what you type. Needs an API key.

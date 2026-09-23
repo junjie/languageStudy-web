@@ -615,15 +615,6 @@ textarea { resize: vertical; font: 13px/1.6 var(--mono); }
 }
 .speech-panel[hidden] { display: none; }
 .rate { width: 100%; accent-color: var(--accent); }
-/* A hidden word. Always the same size, whatever is under it, so neither its
-   length nor how many words it has can be read off the bar. */
-.redacted {
-  width: min(320px, 100%);
-  height: 35px;
-  background: repeating-linear-gradient(135deg,
-    var(--fg-dim) 0 6px, var(--surface-hi) 6px 12px);
-  opacity: 0.55;
-}
 .prompt-sub { margin-top: 8px; font-size: 13px; color: var(--fg-muted); }
 
 .answer-input {

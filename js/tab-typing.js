@@ -170,22 +170,15 @@ function next() {
         <span>${current.last_seen ? 'last seen ' + current.last_seen : 'new card'}</span>
       </div>
       <div class="card-body">
-        <div class="prompt-label">${shownSide === 'front' ? escapeHtml(store.state.settings.targetLanguage) + (listening ? ' — listen' : '') : 'Meaning'}</div>
+        <div class="prompt-label">${shownSide === 'front' ? escapeHtml(store.state.settings.targetLanguage) : 'Meaning'}</div>
         <div class="prompt" id="ty-prompt" lang="${shownSide === 'front' ? code : 'en'}" ${listening ? 'hidden' : ''}>${escapeHtml(shown)}</div>
-        ${listening ? '<div class="redacted" id="ty-listen" role="img" aria-label="Word hidden — listen to it"></div>' : ''}
+        ${listening ? `<input type="text" class="answer-input" id="ty-hear" lang="${code}" placeholder="Type what you hear"
+          aria-label="Type what you hear" autocomplete="off" autocapitalize="off" spellcheck="false">` : ''}
         ${shownSide === 'front' ? `<div class="row" style="margin-top:8px">
           <button class="btn btn--sm" data-say>Listen again</button>
+          ${listening ? '<button class="btn btn--sm" id="ty-hear-btn"></button>' : ''}
         </div>` : ''}
-        ${listening ? `<div id="ty-hear-step">
-          <label class="field" style="margin-top:24px">
-            <span>Type what you hear</span>
-            <input type="text" class="answer-input" id="ty-hear" lang="${code}" autocomplete="off" autocapitalize="off" spellcheck="false">
-          </label>
-          <div class="row" style="margin-top:8px">
-            <button class="btn" id="ty-hear-btn"></button>
-          </div>
-        </div>
-        <div id="ty-heard" style="margin-top:12px" hidden></div>` : ''}
+        ${listening ? '<div id="ty-heard" style="margin-top:12px" hidden></div>' : ''}
         <label class="field" style="margin-top:24px">
           <span id="ty-ask">Type ${escapeHtml(askFor)}</span>
           <input type="text" class="answer-input" id="ty-input" lang="${shownSide === 'front' ? 'en' : code}" autocomplete="off" autocapitalize="off" spellcheck="false">
@@ -229,12 +222,9 @@ function showWord() {
   const word = $('ty-prompt');
   if (!word || !word.hidden) return;
   word.hidden = false;
-  $('ty-listen')?.remove();
-  const label = document.querySelector('#ty-card .prompt-label');
-  if (label) label.textContent = label.textContent.replace(/ — listen$/, '');
   /* Once the word is visible, transcribing it would be copying. */
-  const hear = document.getElementById('ty-hear');
-  if (hear && !hear.disabled) $('ty-hear-step').remove();
+  document.getElementById('ty-hear')?.remove();
+  document.getElementById('ty-hear-btn')?.remove();
 }
 
 function emptyState() {
@@ -357,7 +347,7 @@ function check() {
 
   /* A transcription typed but never checked is not thrown away. */
   const hear = document.getElementById('ty-hear');
-  if (hear && !hear.disabled && hear.value.trim()) checkHeard();
+  if (hear && hear.value.trim()) checkHeard();
 
   answered = true;
   const expected = shownSide === 'front' ? current.back : current.front;
@@ -638,13 +628,14 @@ function wireHear() {
 }
 
 function checkHeard() {
-  const hear = $('ty-hear');
-  if (!hear || hear.disabled || !current) return;
+  const hear = document.getElementById('ty-hear');
+  if (!hear || !current) return;
   const typed = hear.value.trim();
   const heard = markHeard(typed);
-  hear.disabled = true;
-  hear.className = 'answer-input ' + (heard.exact ? 'is-ok' : 'is-bad');
-  $('ty-hear-btn').closest('.row').remove();
+  /* The box stood where the word goes; the word takes its place, and what
+     was typed is shown marked underneath. */
+  hear.remove();
+  $('ty-hear-btn').remove();
 
   if (heard.exact) delete current.accent_slip;
   else if (heard.accent) current.accent_slip = true;
