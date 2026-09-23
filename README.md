@@ -65,12 +65,13 @@ Sentences are banked on disk and replay for free forever.
 ```
 
 `front` is the word in the language you are learning, `back` is its meaning,
+`alternatives` is an optional list of other meanings that also count as right,
 `notes` is anything you want shown after an answer. `score`, `recent`,
 `last_seen` and `accent_slip` are written by the practice tabs; leave them out of a card you type
 by hand and they will be filled in. A bare `{"front": "…", "back": "…"}` is a
 perfectly good card.
 
-Those seven are the whole schema; nothing else affects how the app behaves. Any
+Those eight are the whole schema; nothing else affects how the app behaves. Any
 other field you add is still carried through every save untouched, though, so
 you can keep a `"type"`, a tag, or a page reference alongside the cards and the
 app will leave them alone rather than deleting what it does not recognise.
@@ -90,6 +91,15 @@ kept. `score` is recomputed from it after every answer:
 
 With one exception: **a card with fewer than 8 answers can never score above
 2**. A word you have seen twice is not mastered, however well those two went.
+
+### Other ways to say the meaning
+
+There is usually more than one fair English rendering of a word, so when you
+type a meaning that is marked wrong, **Accept my answer** turns it right: the
+miss is taken back out of `recent` and a right answer recorded instead, and
+what you typed is saved to the card's `alternatives`, so it counts from then
+on. It is only offered for meanings — the word itself has one spelling. To
+take one back, delete it from `alternatives` in the Flashcards tab.
 
 ### Accents
 

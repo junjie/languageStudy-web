@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   recordResult, stats, isDictatable, normalizeCard, parseDeck, serializeDeck,
-  importWatchlist, readDeckFile, pickWeighted, inScope, slugify, WINDOW,
+  importWatchlist, readDeckFile, amendLastToRight, addAlternative, meanings, pickWeighted, inScope, slugify, WINDOW,
 } from '../js/deck.js';
 
 const card = (recent = []) => ({ front: 'x', back: 'y', score: 1, recent: recent.slice() });
@@ -192,6 +192,31 @@ test('accent_slip round-trips through a save, and only when set', () => {
   assert.equal(flagged.accent_slip, true);
   assert.ok(!('accent_slip' in clean));
   assert.ok(!serializeDeck([clean]).includes('accent_slip'));
+});
+
+test('accepting a meaning turns the last answer right, through the same rules', () => {
+  const c = card([true, true, true, true, true, true, false]);
+  recordResult(c, false);
+  assert.equal(c.score, 4, '6/8 = 75%');
+  const move = amendLastToRight(c);
+  assert.deepEqual(c.recent, [true, true, true, true, true, true, false, true], 'the miss is replaced, not added to');
+  assert.equal(move.after, 5, '7/8 = 87.5%');
+  assert.equal(c.score, 5);
+});
+
+test('alternatives are added once, kept through a save, and count as meanings', () => {
+  const same = (a, b) => a.toLowerCase().replace(/[!,]/g, '') === b.toLowerCase().replace(/[!,]/g, '');
+  const c = { ...card(), front: 'khỏi thối', back: 'Keep the change!' };
+  assert.equal(addAlternative(c, 'keep the change', same), false, 'already the back');
+  assert.equal(addAlternative(c, 'Auntie, keep the change', same), true);
+  assert.equal(addAlternative(c, 'auntie keep the change', same), false, 'already an alternative');
+  assert.deepEqual(meanings(c), ['Keep the change!', 'Auntie, keep the change']);
+
+  const [back] = parseDeck(serializeDeck([c])).cards;
+  assert.deepEqual(back.alternatives, ['Auntie, keep the change']);
+  assert.ok(serializeDeck([c]).indexOf('"alternatives"') < serializeDeck([c]).indexOf('"score"'), 'sits with the meaning, above the history');
+  assert.ok(!serializeDeck([card()]).includes('alternatives'), 'absent when empty');
+  assert.ok(!('alternatives' in normalizeCard({ front: 'a', back: 'b', alternatives: ['', '  '] })));
 });
 
 test('weighted picking draws without replacement and favours weak cards', () => {

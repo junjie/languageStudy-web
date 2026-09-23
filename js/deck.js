@@ -9,6 +9,7 @@
      score      1..5, recomputed from recent[] after every answer
      recent     the last 8 results, oldest first
      last_seen  ISO date of the last answer
+     alternatives  optional: other meanings accepted as right, beside back
      accent_slip  true while the word's last miss was accents only: set by a
                 right-word-wrong-accents answer, cleared by an exact one
 
@@ -61,6 +62,31 @@ export function recordResult(card, ok, { accentSlip = false, typedFront = true }
   return { before, after: card.score, encounters, correct };
 }
 
+/* Turn the answer just recorded into a right one — the learner has said a
+   meaning they typed is as good as the card's. The wrong answer is taken back
+   out of the window and a right one recorded in its place, through the same
+   rules as any other answer. */
+export function amendLastToRight(card) {
+  if (Array.isArray(card.recent) && card.recent.length && card.recent[card.recent.length - 1] === false) {
+    card.recent.pop();
+  }
+  return recordResult(card, true, { typedFront: false });
+}
+
+/* Adds a meaning to the card's alternatives, unless it already matches one
+   of its meanings. Returns true when the card changed. */
+export function addAlternative(card, text, same) {
+  const t = String(text || '').trim();
+  if (!t || meanings(card).some((m) => same(t, m))) return false;
+  card.alternatives = [...(card.alternatives || []), t];
+  return true;
+}
+
+/* Every answer that counts as the meaning: the back, then any alternatives. */
+export function meanings(card) {
+  return [card.back, ...(card.alternatives || [])];
+}
+
 export function today() {
   return new Date().toISOString().slice(0, 10);
 }
@@ -108,7 +134,7 @@ export function isDictatable(card) {
   return core.length >= 1 && core.length <= 6;
 }
 
-const KNOWN_KEYS = new Set(['front', 'back', 'notes', 'score', 'recent', 'last_seen', 'accent_slip']);
+const KNOWN_KEYS = new Set(['front', 'back', 'alternatives', 'notes', 'score', 'recent', 'last_seen', 'accent_slip']);
 
 /* Fill in what a hand-written card leaves out, so bare front/back pairs pasted
    into the textarea work without ceremony.
@@ -122,6 +148,10 @@ export function normalizeCard(raw) {
     front: String((raw && raw.front) || '').trim(),
     back: String((raw && raw.back) || '').trim(),
   };
+  if (raw && Array.isArray(raw.alternatives)) {
+    const alts = raw.alternatives.map((a) => String(a || '').trim()).filter(Boolean);
+    if (alts.length) card.alternatives = alts;
+  }
   if (raw && raw.notes) card.notes = String(raw.notes);
   const score = Number(raw && raw.score);
   card.score = Number.isFinite(score) && score >= 1 && score <= 5 ? Math.round(score) : 1;
@@ -199,6 +229,7 @@ function tidy(msg) {
 export function serializeDeck(cards) {
   const out = cards.map((c) => {
     const o = { front: c.front, back: c.back };
+    if (c.alternatives && c.alternatives.length) o.alternatives = c.alternatives;
     if (c.notes) o.notes = c.notes;
     o.score = c.score;
     o.recent = c.recent;

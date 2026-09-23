@@ -4,10 +4,15 @@
    being drilled. But "right word, wrong accents" is a different mistake from
    "wrong word", and a learner needs to be told which one they made, so the
    near miss gets its own verdict and the offending characters are marked.
-   It also flags the card, and the Accents filter drills just those. */
+   It also flags the card, and the Accents filter drills just those.
+
+   Meanings are looser than words: there is more than one fair way to say
+   something in English. So a meaning is right if it matches the back or any
+   of the card's alternatives, and a miss can be accepted on the spot — which
+   records it as an alternative and turns the answer right. */
 
 import * as store from './store.js';
-import { pickWeighted, inScope, recordResult, stats, SCORE_LABEL } from './deck.js';
+import { pickWeighted, inScope, recordResult, amendLastToRight, addAlternative, meanings, stats, SCORE_LABEL } from './deck.js';
 import { compareAnswer, accentMarks, escapeHtml, scoreMark } from './text.js';
 
 const $ = (id) => document.getElementById(id);
@@ -17,6 +22,8 @@ let current = null;
 let shownSide = 'front';
 let answered = false;
 let previous = null;
+/* The answer just checked, kept so it can still be accepted. */
+let last = null;
 const tally = { total: 0, right: 0, wrong: 0 };
 
 export function init() {
@@ -161,7 +168,9 @@ function check() {
 
   answered = true;
   const expected = shownSide === 'front' ? current.back : current.front;
-  const verdict = compareAnswer(typed, expected);
+  const verdict = shownSide === 'front'
+    ? bestVerdict(typed, meanings(current))
+    : compareAnswer(typed, expected);
   const ok = verdict === 'exact';
 
   /* Only a slip in the language being learnt counts: an accent missed while
@@ -183,8 +192,33 @@ function check() {
   nextBtn.focus();
 
   $('ty-feedback').innerHTML = feedback(verdict, typed, expected, move);
+  last = { typed, expected, before: move.before };
+  const accept = $('ty-accept');
+  if (accept) accept.addEventListener('click', acceptAnswer);
   previous = { shown: current[shownSide], expected, typed, verdict, notes: current.notes };
   renderPrevious();
+  store.cardAnswered();
+}
+
+/* The best of the verdicts against every accepted meaning. */
+function bestVerdict(typed, options) {
+  const verdicts = options.map((m) => compareAnswer(typed, m));
+  return verdicts.includes('exact') ? 'exact' : verdicts.includes('accent') ? 'accent' : 'wrong';
+}
+
+function acceptAnswer() {
+  if (!last || !current) return;
+  addAlternative(current, last.typed, (a, b) => compareAnswer(a, b) === 'exact');
+  const move = { ...amendLastToRight(current), before: last.before };
+  tally.right++;
+  tally.wrong--;
+  $('ty-right').textContent = tally.right;
+  $('ty-wrong').textContent = tally.wrong;
+  $('ty-input').className = 'answer-input is-ok';
+  $('ty-feedback').innerHTML = feedback('accepted', last.typed, last.expected, move);
+  previous.verdict = 'exact';
+  last = null;
+  $('ty-next').focus();
   store.cardAnswered();
 }
 
@@ -193,8 +227,18 @@ function feedback(verdict, typed, expected, move) {
     ? ` <span class="typed-back">${scoreMark(move.before)} → ${scoreMark(move.after, SCORE_LABEL[move.after].toLowerCase())}</span>`
     : '';
 
+  const alts = shownSide === 'front' && (current.alternatives || []).length
+    ? `<div class="typed-back" style="margin-top:6px">also accepted: ${current.alternatives.map(escapeHtml).join(' · ')}</div>` : '';
+  /* Only a meaning can be accepted: the word itself has one right spelling. */
+  const acceptBtn = shownSide === 'front'
+    ? `<div class="row" style="margin-top:10px"><button class="btn btn--sm" id="ty-accept">Accept my answer</button>
+       <span class="note">Counts it as right, and saves it as another meaning of this card.</span></div>` : '';
+
   let head;
-  if (verdict === 'exact') {
+  if (verdict === 'accepted') {
+    head = `<div class="verdict is-ok">Accepted${moved}</div>
+      <div class="typed-back" style="margin-top:6px">“${escapeHtml(typed)}” is now saved as another meaning, beside <strong>${escapeHtml(expected)}</strong></div>`;
+  } else if (verdict === 'exact') {
     head = `<div class="verdict is-ok">Correct${moved}</div>`;
   } else if (verdict === 'accent') {
     /* The word was there. Show precisely which marks went astray. */
@@ -203,11 +247,11 @@ function feedback(verdict, typed, expected, move) {
       .join('');
     head = `<div class="verdict is-warn">Right word, wrong accents
       <span class="reveal">${escapeHtml(expected)}</span>${moved}</div>
-      <div class="typed-back" style="margin-top:6px">you typed ${marked}</div>`;
+      <div class="typed-back" style="margin-top:6px">you typed ${marked}</div>${alts}${acceptBtn}`;
   } else {
     head = `<div class="verdict is-bad">Not quite
       <span class="reveal">${escapeHtml(expected)}</span>${moved}</div>
-      <div class="typed-back" style="margin-top:6px">you typed <s>${escapeHtml(typed)}</s></div>`;
+      <div class="typed-back" style="margin-top:6px">you typed <s>${escapeHtml(typed)}</s></div>${alts}${acceptBtn}`;
   }
 
   const notes = current.notes
