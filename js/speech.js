@@ -126,13 +126,28 @@ export function speak(text, code, { rate = 1, voice: name = '' } = {}) {
   if (!text) return false;
   const azureVoices = azureVoicesFor(code);
   const wanted = name.startsWith(AZURE_PREFIX) ? name.slice(AZURE_PREFIX.length) : '';
-  const pick = (wanted && azureVoices.find((v) => v.name === wanted))
+  /* A chosen Azure voice is spoken with straight away, without waiting for
+     the voice list: the list arrives a moment after boot, and the first card
+     is read before then — by the device's voice, which is the wrong one.
+     Its name carries its locale ("vi-VN-NamMinhNeural"), which is all a
+     request needs; the list is only for the picker. */
+  const pick = (wanted && (azureVoices.find((v) => v.name === wanted) || azureVoiceFromName(wanted, code)))
     || (!voiceFor(code) && azureVoices[0]) || null;
   if (pick && azure.getKey()) {
     speakAzure(String(text), pick, rate, code);
     return true;
   }
   return speakDevice(text, code, rate, name);
+}
+
+/* "vi-VN-NamMinhNeural" → { name, locale: "vi-VN" }, if it is a voice for
+   this language at all. */
+export function azureVoiceFromName(name, code) {
+  const m = /^([a-z]{2,3}-[A-Za-z]{2,4})-\w+$/.exec(String(name || ''));
+  if (!m) return null;
+  const lang = String(code || '').toLowerCase().split('-')[0];
+  if (lang && m[1].toLowerCase().split('-')[0] !== lang) return null;
+  return { name, locale: m[1], label: name };
 }
 
 function speakDevice(text, code, rate, name) {
