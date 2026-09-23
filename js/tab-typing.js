@@ -78,7 +78,7 @@ export function init() {
     if (hit('[data-say]')) say(true);
     else if (hit('#ty-show-word')) showWord();
     else if (hit('#ty-accept')) acceptAnswer();
-    else if (hit('#ty-notes-edit')) renderNotes(true);
+    else if (hit('#ty-notes-edit') || hit('#ty-fix-meaning')) renderNotes(true);
     else if (hit('#ty-notes-save')) saveNotes();
     else if (hit('#ty-notes-cancel')) renderNotes(false);
   });
@@ -452,7 +452,8 @@ function feedback(verdict, typed, expected, move) {
     ? `<div class="typed-back" style="margin-top:6px">also accepted: ${current.alternatives.map(escapeHtml).join(' · ')}</div>` : '';
   const acceptBtn = shownSide === 'front'
     ? `<div class="row" style="margin-top:10px"><button class="btn btn--sm" id="ty-accept">Accept my answer</button>
-       <span class="note">Counts it as right, and saves it as another meaning of this card.</span></div>`
+       <button class="btn btn--sm" id="ty-fix-meaning">Change the meaning</button>
+       <span class="note">Accept keeps the card's meaning and adds yours beside it; change it if the card's is wrong.</span></div>`
     : `<div class="row" style="margin-top:10px"><button class="btn btn--sm" id="ty-accept">Mark as right</button>
        <span class="note">Counts it as right this time. Nothing is saved to the card.</span></div>`;
 
