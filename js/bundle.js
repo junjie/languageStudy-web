@@ -24,7 +24,7 @@
 
      the API key      it is not app state, it is a credential, and a bundle is
                       the kind of file people mail to themselves
-     the audio bank   the wav files are the bulk of a setup by an order of
+     the audio bank   the audio files are the bulk of a setup by an order of
                       magnitude, and base64 inside a JSON document is the wrong
                       place for them. The manifest goes with them rather than
                       being imported as an index of sentences whose audio is

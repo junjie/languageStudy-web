@@ -14,6 +14,7 @@
 import { words, contains } from './text.js';
 import { VOICE_NAMES, modelLimits } from './defaults.js';
 import { buildGradingParts, readGrading, attachableClips } from './shadowing.js';
+import { encodeOggOpus, OPUS_MIME } from './opus.js';
 
 const ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent';
 const MINUTE = 60;
@@ -308,6 +309,26 @@ export function pcmToWav(bytes, mime) {
   return out;
 }
 
+/* The file a spoken sentence is saved as: Ogg Opus where the browser can
+   encode it, a twelfth the size, and WAV where it cannot — see opus.js. A
+   bank that already holds WAVs keeps them; each entry names its own file.
+   A payload that arrives already in a container is kept as it came. */
+export async function speechFile(bytes, mime) {
+  const wav = pcmToWav(bytes, mime);
+  if (wav === bytes) {
+    const ogg = ascii4(bytes) === 'OggS';
+    return { bytes, ext: ogg ? 'ogg' : 'wav', type: ogg ? OPUS_MIME : 'audio/wav' };
+  }
+  const m = /rate=(\d+)/.exec(mime || '');
+  const opus = await encodeOggOpus(bytes, m ? Number(m[1]) : 24000);
+  if (opus) return { bytes: opus, ext: 'ogg', type: OPUS_MIME };
+  return { bytes: wav, ext: 'wav', type: 'audio/wav' };
+}
+
+function ascii4(bytes) {
+  return String.fromCharCode(...bytes.slice(0, 4));
+}
+
 function decodeBase64(b64) {
   const bin = atob(b64);
   const out = new Uint8Array(bin.length);
@@ -460,12 +481,13 @@ export function createClient({ getSettings, getApiKey, limiter }) {
     const voice = pickVoice(s);
     const { sentence, english } = await writeSentence(terms);
     const { bytes, mime } = await speak(sentence, voice);
-    const wav = new Blob([pcmToWav(bytes, mime)], { type: 'audio/wav' });
+    const file = await speechFile(bytes, mime);
+    const audio = new Blob([file.bytes], { type: file.type });
 
     const id = nextBankId(manifest);
     const entry = {
       id,
-      file: `audio/${id}.wav`,
+      file: `audio/${id}.${file.ext}`,
       text_file: `audio/${id}.txt`,
       sentence,
       english,
@@ -479,7 +501,7 @@ export function createClient({ getSettings, getApiKey, limiter }) {
       created: new Date().toISOString().slice(0, 10),
       times_practiced: 0,
     };
-    return { entry, wav, sidecar: sidecarText(entry) };
+    return { entry, audio, sidecar: sidecarText(entry) };
   }
 
   /* ── shadowing ─────────────────────────────────────────────────────── */
@@ -567,7 +589,7 @@ export function createClient({ getSettings, getApiKey, limiter }) {
   return { call, testKey, generateCard, preflight, gradeShadowing, shadowPreflight };
 }
 
-/* Duplicates what the manifest holds, so a stray .wav is never an orphan. */
+/* Duplicates what the manifest holds, so a stray audio file is never an orphan. */
 export function sidecarText(entry) {
   return [
     entry.sentence,
