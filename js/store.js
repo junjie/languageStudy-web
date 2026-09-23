@@ -8,7 +8,8 @@
 import * as storage from './storage.js';
 import { withDefaults, STARTER_DECK, DEFAULT_SETTINGS } from './defaults.js';
 import { parseDeck, serializeDeck, normalizeCard, slugify } from './deck.js';
-import { RateLimiter, createClient } from './gemini.js';
+import { RateLimiter, createClient, sidecarText } from './gemini.js';
+import { makeZip } from './zip.js';
 
 const SETTINGS_FILE = 'settings.json';
 const QUOTA_FILE = 'audio/quota.json';
@@ -20,12 +21,19 @@ export const state = {
   deckNames: [],
   cards: STARTER_DECK.map(normalizeCard),
   manifest: [],
-  /* True once a folder is connected: until then everything is in memory and
-     is lost on reload, which the UI has to keep saying out loud. */
+  /* True once a folder or browser storage is adopted: until then everything
+     is in memory and is lost on reload, which the UI has to keep saying out
+     loud. */
   persistent: false,
+  /* False until boot has found out where data can live, so nothing warns
+     about "not saving" in the moment before storage has even been tried. */
+  settled: false,
 };
 
 const subs = { settings: new Set(), deck: new Set(), folder: new Set(), quota: new Set() };
+
+/* A folder can be lost mid-session when a write fails; the UI has to hear. */
+storage.onFolderChange(() => emit('folder'));
 
 export function subscribe(topic, fn) {
   subs[topic].add(fn);
@@ -160,20 +168,28 @@ export function setCards(cards) {
 
 /* ── the dictation bank ──────────────────────────────────────────────── */
 
+/* blobUrl only means anything in this page's lifetime, so it is never
+   written out. */
 export async function saveManifest() {
-  if (state.persistent) await storage.writeJson(MANIFEST_FILE, state.manifest);
+  if (state.persistent) await storage.writeJson(MANIFEST_FILE, state.manifest.map(({ blobUrl, ...e }) => e));
 }
 
 /* ── connecting ──────────────────────────────────────────────────────── */
 
-/* Read everything the folder holds, creating what a fresh folder lacks.
-   A folder is adopted exactly as it is found: this never overwrites a deck or
-   a settings file that is already there. */
-export async function adoptFolder() {
+/* Read everything the current store holds — the folder, or browser storage —
+   creating what a fresh one lacks. A store is adopted exactly as it is found:
+   this never overwrites a deck or a settings file that is already there. The
+   one exception is a brand-new empty folder, which is first seeded with what
+   this browser already holds, so work done before connecting it comes along. */
+export async function adopt() {
   state.persistent = true;
+  state.settled = true;
   await storage.ensureSubdirs();
 
-  const loadedSettings = await storage.readJson(SETTINGS_FILE);
+  let loadedSettings = await storage.readJson(SETTINGS_FILE);
+  if (storage.where() === 'folder' && !loadedSettings && !(await storage.listDecks()).length) {
+    if (await storage.copyFromBrowser()) loadedSettings = await storage.readJson(SETTINGS_FILE);
+  }
   state.settings = withDefaults(loadedSettings || storage.localGet('settings', null));
   if (!loadedSettings) await storage.writeJson(SETTINGS_FILE, state.settings);
 
@@ -203,12 +219,78 @@ export async function adoptFolder() {
   emit('quota');
 }
 
+/* No folder: keep things in this browser if it lets us, else in memory. */
+export async function useBrowser() {
+  if (await storage.useBrowser()) {
+    await adopt();
+    return true;
+  }
+  releaseFolder();
+  return false;
+}
+
 export function releaseFolder() {
   state.persistent = false;
+  state.settled = true;
   state.manifest = [];
   state.deckNames = [state.deckName];
   emit('folder');
   emit('deck');
+}
+
+/* ── backups ─────────────────────────────────────────────────────────── */
+
+/* A zip laid out exactly like the data folder, so unzipping it gives a folder
+   Chrome can be pointed at, and Restore can read it straight back. With
+   nothing persisted, it is built from what is in memory — sentences made this
+   session included. */
+export async function backupZip() {
+  let files = state.persistent ? await storage.allFiles() : [];
+  if (!files.length) {
+    files = [
+      { path: SETTINGS_FILE, data: JSON.stringify(state.settings, null, 2) + '\n' },
+      { path: deckPath(state.deckName), data: serializeDeck(state.cards) },
+    ];
+    const banked = [];
+    for (const entry of state.manifest) {
+      if (!entry.blobUrl) continue;
+      const wav = await fetch(entry.blobUrl).then((r) => r.blob()).catch(() => null);
+      if (!wav) continue;
+      const { blobUrl, ...clean } = entry;
+      banked.push(clean);
+      files.push({ path: entry.file, data: wav });
+      files.push({ path: entry.text_file, data: sidecarText(entry) });
+    }
+    if (banked.length) files.push({ path: MANIFEST_FILE, data: JSON.stringify(banked, null, 2) + '\n' });
+  }
+  return makeZip(files);
+}
+
+/* files: [{ path, bytes }], already mapped onto the data layout. Files with
+   the same path are replaced; everything else already stored is kept. A
+   restored bank is merged with the current one by id, so restoring an old
+   backup never drops a sentence made since. */
+export async function restoreFiles(files) {
+  if (!state.persistent) return 0;
+  let written = 0;
+  let incoming = null;
+  for (const { path, bytes } of files) {
+    if (path === MANIFEST_FILE) {
+      try { incoming = JSON.parse(new TextDecoder().decode(bytes)); } catch (e) { incoming = null; }
+      continue;
+    }
+    const type = path.endsWith('.wav') ? 'audio/wav' : 'text/plain';
+    if (await storage.writeBlob(path, new Blob([bytes], { type }))) written++;
+  }
+  if (Array.isArray(incoming)) {
+    const byId = new Map(state.manifest.map((e) => [e.id, e]));
+    for (const e of incoming) if (e && e.id) byId.set(e.id, e);
+    state.manifest = [...byId.values()];
+    await saveManifest();
+    written++;
+  }
+  await adopt();
+  return written;
 }
 
 /* Boot with whatever can be had without a folder, so the page is usable the

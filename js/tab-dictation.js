@@ -116,8 +116,11 @@ function gate() {
     return;
   }
 
-  el.innerHTML = !store.state.persistent
-    ? `<div class="banner is-warn">No folder connected — a sentence you generate can be played now, but it is gone on reload and will not score your cards. Connect a folder in Settings to keep the audio and the results.</div>`
+  const where = storage.where();
+  el.innerHTML = where === 'lost'
+    ? `<div class="banner is-warn">Lost access to the data folder — a sentence you make now plays, but is not kept and its score is not saved. Choose the folder again in Settings.</div>`
+    : store.state.settled && !store.state.persistent
+    ? `<div class="banner is-warn">This browser is not letting the page store anything (a private window?) — a sentence you make plays now but is gone on reload. Use <strong>Download audio</strong> on the card, or <strong>Download backup</strong> in Settings, to keep what you make.</div>`
     : '';
   $('dc-stage').hidden = false;
   renderQuota();
@@ -183,13 +186,12 @@ async function generate() {
 
   try {
     const { entry, wav, sidecar } = await store.client.generateCard(terms, store.state.manifest);
-    if (store.state.persistent) {
-      await storage.writeBlob(entry.file, wav);
-      await storage.writeText(entry.text_file, sidecar);
-    } else {
-      /* No folder: keep it playable for this session only. */
-      entry.blobUrl = URL.createObjectURL(wav);
-    }
+    const kept = store.state.persistent
+      && await storage.writeBlob(entry.file, wav)
+      && await storage.writeText(entry.text_file, sidecar);
+    /* Nowhere to keep it, or the write was refused: playable, and
+       downloadable, for this session only. */
+    if (!kept) entry.blobUrl = URL.createObjectURL(wav);
     store.state.manifest.push(entry);
     await store.saveManifest();
     heard.add(entry.id);

@@ -131,7 +131,7 @@ async function save() {
   dirty = false;
   validate();
   if (!ok && store.state.persistent) {
-    $('deck-status').textContent = 'Could not write the deck file — reconnect the folder in Settings.';
+    $('deck-status').textContent = 'Could not save the deck — see Settings → Your data.';
     $('deck-status').className = 'status is-bad';
   }
 }

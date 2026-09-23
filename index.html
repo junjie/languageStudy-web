@@ -30,16 +30,25 @@
 <div class="wrap">
 
   <div class="block">
-    <div class="block-head"><h2>Data folder</h2><span class="hint" id="folder-hint"></span></div>
+    <div class="block-head"><h2>Your data</h2><span class="hint" id="folder-hint"></span></div>
     <div class="block-body">
-      <p class="note">Everything you practise is kept in one folder on this device: decks, settings, and the audio the dictation tab generates. Nothing is uploaded and there is no account. Pick an empty folder; the app creates what it needs.</p>
-      <div class="row">
+      <p class="note">Everything you practise stays on this device: decks, settings, and the audio the dictation tab generates. Nothing is uploaded and there is no account. By default it is kept in this browser's storage. In Chrome or Edge you can choose a folder instead, so the files sit on disk where you can see, copy and back them up.</p>
+      <div class="row" id="folder-row">
         <button class="btn btn--primary" id="folder-connect">Choose folder</button>
         <button class="btn" id="folder-disconnect" hidden>Disconnect</button>
+      </div>
+      <p class="note">A backup is a zip laid out exactly like the folder. Unzip it anywhere and Chrome can open it as a data folder, or bring it back here with Restore.</p>
+      <div class="row">
+        <button class="btn btn--sm" id="backup-download">Download backup (.zip)</button>
         <button class="btn btn--sm" id="folder-export" hidden>Download current deck</button>
+        <span class="spacer"></span>
+        <button class="btn btn--sm" id="restore-zip">Restore from zip…</button>
+        <button class="btn btn--sm" id="restore-dir">Restore from folder…</button>
+        <input type="file" id="restore-zip-input" accept=".zip,application/zip" hidden>
+        <input type="file" id="restore-dir-input" webkitdirectory multiple hidden>
       </div>
     </div>
-    <div class="status" id="folder-status">Not connected. The app still works, but nothing will be saved.</div>
+    <div class="status" id="folder-status">Starting…</div>
   </div>
 
   <div class="block">

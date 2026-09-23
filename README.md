@@ -2,9 +2,9 @@
 
 Flashcards, typing practice and AI dictation for whatever language you are
 learning. One static page. No account, no server, no database — your cards and
-your audio live in a folder you choose on your own computer, and the only thing
-that ever leaves the machine is a request to Google, signed with your own API
-key.
+your audio stay on your own computer, in the browser or in a folder you choose,
+and the only thing that ever leaves the machine is a request to Google, signed
+with your own API key. Works in Safari, Firefox, Chrome and Edge.
 
 **[Open the app →](https://nejra0031.github.io/languageStudy-web/)**
 *(live once GitHub Pages is enabled: Settings → Pages → deploy from `main`, root)*
@@ -27,7 +27,7 @@ without knowing anything about any of them.
 
 ## The four tabs
 
-**Settings** — the folder, your API key, the language, the models, the call
+**Settings** — where your data lives, backups, your API key, the language, the models, the call
 budget, the prompts, and which voices may read to you.
 
 **Flashcards** — a text box containing the deck file exactly as it is stored.
@@ -90,9 +90,12 @@ With one exception: **a card with fewer than 8 answers can never score above
 Practice draws cards at random weighted by `(6 − score)²`, so a very weak card
 comes up about 25 times as often as a mastered one.
 
-## Your data folder
+## Your data
 
-The app asks for a folder once and remembers it. It creates:
+Out of the box everything is kept in the browser's own storage (IndexedDB), in
+any browser, with nothing to set up. In Chrome or Edge you can choose a folder
+instead, and the same files are written to disk where you can see them. The
+layout is identical either way:
 
 ```
 settings.json          models, limits, voices, language, prompts
@@ -103,15 +106,27 @@ audio/<id>.wav         generated speech
 audio/<id>.txt         its transcript, translation and target words
 ```
 
-Back it up by copying the folder. Move it to another machine by copying it
-there and pointing the app at it.
+**Download backup** in Settings saves all of it as a zip in exactly that
+layout. Unzip it and Chrome can open it as a data folder; **Restore from zip**
+or **Restore from folder** reads one back into any browser. A restore replaces
+decks and settings of the same name, keeps everything else, and merges the
+dictation bank, so an old backup never drops a sentence made since.
 
-Without a folder the app still runs — you can edit cards and do typing practice
-— but nothing survives a reload.
+Connecting an empty folder copies across what the browser already holds, so
+practice done before you picked one comes with you. A folder that already has
+data is used as it is found and never overwritten.
 
-**Browser support:** choosing a folder needs the File System Access API, which
-today means Chrome, Edge or another Chromium browser. Everything else works
-anywhere; in a browser without it you can still download a deck as a file.
+**Back up now and then if you stay in the browser.** Browser storage is only as
+durable as the browser makes it: Safari clears storage for sites you have not
+opened in a while, and any browser clears it along with its site data. Settings
+says whether the browser has promised to keep it.
+
+If the browser will not store anything at all (some private windows), the app
+still runs in memory and says so; download a backup before closing it.
+
+**Browser support:** everything works in any current browser. Choosing a folder
+needs the File System Access API, which today means Chrome, Edge or another
+Chromium browser; the Choose folder button only appears where it works.
 
 ## The API key
 
@@ -120,8 +135,9 @@ a free key at [aistudio.google.com/apikey](https://aistudio.google.com/apikey)
 and paste it into Settings.
 
 The key is kept in your browser's `localStorage`. It is deliberately **not**
-written into the data folder, so pointing the app at a folder that happens to be
-a git clone cannot commit it. It is sent to Google and to nobody else — there is
+written into the data folder or a backup, so pointing the app at a folder that
+happens to be a git clone cannot commit it, and a backup zip can be passed
+around without leaking it. It is sent to Google and to nobody else — there is
 no backend here to send it to.
 
 It is still a key in a browser, so treat it as one: use a key with no billing
@@ -137,7 +153,7 @@ last 60 seconds and the last 24 hours rather than resetting at midnight: Google
 resets on Pacific time, and a rolling window can only ever be stricter than the
 real quota, never looser.
 
-Counts live in `audio/quota.json` so a reload does not hand out a fresh day's
+Counts live in `audio/quota.json` (in the folder or in browser storage) so a reload does not hand out a fresh day's
 worth. **Reset budget** in Settings clears them.
 
 One new sentence normally costs one text call and one speech call, and at worst
@@ -180,7 +196,8 @@ css/app.css           one stylesheet
 js/text.js            comparison, diacritics, word diff
 js/deck.js            deck format, scoring, card selection
 js/gemini.js          API calls, call budget, WAV wrapping
-js/storage.js         the folder
+js/storage.js         the folder, or browser storage in its place
+js/zip.js             backup zips, written and read
 js/store.js           shared state
 js/tab-*.js           one per tab
 js/defaults.js        settings, prompts and the starter deck

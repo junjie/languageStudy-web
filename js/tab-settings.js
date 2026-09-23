@@ -6,12 +6,17 @@ import * as store from './store.js';
 import { VOICES, DEFAULT_SENTENCE_PROMPT, DEFAULT_SPEECH_PROMPT } from './defaults.js';
 import { fillTemplate, sentenceVars, formatWait, GeminiError, QuotaError } from './gemini.js';
 import { serializeDeck } from './deck.js';
+import { readZip } from './zip.js';
 
 const $ = (id) => document.getElementById(id);
 
 /* One handle kept aside when a folder is remembered but its permission has
    lapsed — requestPermission() is only allowed from a click. */
 let pendingHandle = null;
+
+/* Whether the browser has promised not to evict its storage: null until
+   asked, which happens only once browser storage is in use. */
+let persisted = null;
 
 const SAMPLE_TERMS = [
   { front: 'cải tiến', back: 'to improve' },
@@ -43,12 +48,12 @@ function wireFolder() {
     try {
       if (pendingHandle) {
         const ok = await storage.regrant(pendingHandle);
-        if (!ok) { setFolderStatus('Permission refused — nothing is being saved.', 'is-warn'); return; }
+        if (!ok) { setFolderStatus('Permission refused — still saving in this browser instead.', 'is-warn'); return; }
         pendingHandle = null;
       } else {
         await storage.connect();
       }
-      await store.adoptFolder();
+      await store.adopt();
     } catch (e) {
       if (e && e.name === 'AbortError') return;
       console.error(e);
@@ -58,44 +63,125 @@ function wireFolder() {
 
   $('folder-disconnect').addEventListener('click', async () => {
     await storage.disconnect();
-    store.releaseFolder();
+    await useBrowser();
   });
 
   $('folder-export').addEventListener('click', () => {
     storage.download(`${store.state.deckName}.json`, serializeDeck(store.state.cards));
   });
+
+  $('backup-download').addEventListener('click', async () => {
+    const btn = $('backup-download');
+    btn.disabled = true;
+    try {
+      const zip = await store.backupZip();
+      storage.download(`language-study-${new Date().toISOString().slice(0, 10)}.zip`, zip);
+    } catch (e) {
+      console.error(e);
+      setFolderStatus('Could not build the backup: ' + e.message, 'is-bad');
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  $('restore-zip').addEventListener('click', () => $('restore-zip-input').click());
+  $('restore-dir').addEventListener('click', () => $('restore-dir-input').click());
+
+  $('restore-zip-input').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    e.target.value = '';
+    if (!file) return;
+    try {
+      const entries = await readZip(file);
+      await restore(file.name, entries.map(({ path, bytes }) => ({ path: storage.dataPath(path), bytes })));
+    } catch (err) {
+      console.error(err);
+      setFolderStatus(`Could not read ${file.name}: ${err.message}`, 'is-bad');
+    }
+  });
+
+  $('restore-dir-input').addEventListener('change', async (e) => {
+    const picked = [...e.target.files];
+    e.target.value = '';
+    if (!picked.length) return;
+    const top = (picked[0].webkitRelativePath || picked[0].name).split('/')[0];
+    const files = [];
+    for (const f of picked) {
+      const path = storage.dataPath(f.webkitRelativePath || f.name);
+      if (path) files.push({ path, bytes: new Uint8Array(await f.arrayBuffer()) });
+    }
+    await restore(`"${top}"`, files);
+  });
+}
+
+async function restore(label, mapped) {
+  const files = mapped.filter((f) => f.path);
+  if (!files.length) {
+    setFolderStatus(`Nothing in ${label} looks like this app's data — expected settings.json, decks/ or audio/.`, 'is-bad');
+    return;
+  }
+  const decks = files.filter((f) => f.path.startsWith('decks/')).length;
+  const audio = files.filter((f) => f.path.endsWith('.wav')).length;
+  const ok = confirm(`Restore from ${label}: ${decks} deck${decks === 1 ? '' : 's'}, ${audio} recording${audio === 1 ? '' : 's'}, ${files.length} files in all.\n\n`
+    + 'Decks and settings with the same name are replaced by the ones in the backup. Everything else you have is kept, and banked sentences are merged.');
+  if (!ok) return;
+  const n = await store.restoreFiles(files);
+  setFolderStatus(`Restored ${n} file${n === 1 ? '' : 's'} from ${label}.`, 'is-ok');
+}
+
+async function useBrowser() {
+  if (await store.useBrowser()) {
+    persisted = await storage.askPersist();
+    renderFolder();
+  }
 }
 
 export async function restoreFolder() {
   const result = await storage.restore();
   if (result.state === 'connected') {
-    await store.adoptFolder();
+    await store.adopt();
     return;
   }
   if (result.state === 'needs-permission') {
     pendingHandle = result.handle;
     $('folder-connect').textContent = `Reconnect "${result.name}"`;
-    setFolderStatus(`"${result.name}" is remembered but the browser needs you to allow it again.`, 'is-warn');
-    return;
   }
-  if (result.state === 'unsupported') {
-    $('folder-connect').disabled = true;
-    setFolderStatus('This browser cannot open a folder. Chrome or Edge can; elsewhere, use the deck download button.', 'is-warn');
-  }
+  await useBrowser();
 }
 
 function renderFolder() {
+  const w = storage.where();
   const name = storage.folderName();
-  const connected = !!name;
-  $('folder-disconnect').hidden = !connected;
+  const n = store.state.deckNames.length;
+  const m = store.state.manifest.length;
+  const counts = `${n} deck${n === 1 ? '' : 's'}, ${m} banked sentence${m === 1 ? '' : 's'}`;
+
+  $('folder-connect').hidden = !storage.SUPPORTS_FS || w === 'folder';
+  $('folder-disconnect').hidden = w !== 'folder';
   $('folder-export').hidden = !store.state.cards.length;
-  $('folder-connect').hidden = connected;
-  $('folder-hint').textContent = connected ? name : 'not connected';
-  if (connected) {
-    const n = store.state.deckNames.length;
-    setFolderStatus(`Saving to "${name}" — ${n} deck${n === 1 ? '' : 's'}, ${store.state.manifest.length} banked sentence${store.state.manifest.length === 1 ? '' : 's'}.`, 'is-ok');
-  } else if (!pendingHandle) {
-    setFolderStatus('Not connected. The app still works, but nothing will be saved.', '');
+  for (const id of ['restore-zip', 'restore-dir']) $(id).disabled = w !== 'folder' && w !== 'browser';
+
+  $('folder-hint').textContent = {
+    folder: name, browser: 'in this browser', lost: 'folder lost',
+  }[w] || 'not saving';
+
+  if (w === 'folder') {
+    setFolderStatus(`Saving to "${name}" — ${counts}.`, 'is-ok');
+  } else if (w === 'browser') {
+    const keep = persisted
+      ? ' The browser has agreed to keep it.'
+      : ' The browser has not promised to keep it, and Safari clears storage for sites you have not opened in a while, so download a backup now and then.';
+    if (pendingHandle) {
+      setFolderStatus(`"${pendingHandle.name}" is remembered but the browser needs you to allow it again. Until then, saving in this browser — ${counts}.`, 'is-warn');
+    } else {
+      setFolderStatus(`Saving in this browser — ${counts}.${keep}`, persisted ? 'is-ok' : 'is-warn');
+    }
+  } else if (w === 'lost') {
+    setFolderStatus('Lost access to the folder — it was moved, renamed, or its permission withdrawn. Choose it again; until then nothing is saved.', 'is-bad');
+  } else if (!store.state.settled) {
+    setFolderStatus('Opening storage…', '');
+  } else {
+    setFolderStatus('This browser is not letting the page store anything (a private window?), so nothing survives a reload. Download a backup before closing it.', 'is-warn');
   }
   updateBar();
 }
@@ -108,12 +194,15 @@ function setFolderStatus(text, cls) {
 
 export function updateBar() {
   const el = $('bar-status');
-  const name = storage.folderName();
+  const w = storage.where();
   const s = store.state.settings;
-  const bits = [s.targetLanguage || '—', name ? `folder: ${name}` : 'no folder'];
+  const where = w === 'folder' ? `folder: ${storage.folderName()}`
+    : w === 'browser' ? 'saved in browser'
+    : w === 'lost' ? 'folder lost' : 'not saving';
+  const bits = [s.targetLanguage || '—', where];
   if (!storage.getApiKey()) bits.push('no API key');
   el.textContent = bits.join('  ·  ');
-  el.className = 'bar-status ' + (name ? 'is-live' : 'is-off');
+  el.className = 'bar-status ' + (w === 'folder' || w === 'browser' ? 'is-live' : 'is-off');
 }
 
 /* ── key ─────────────────────────────────────────────────────────────── */
