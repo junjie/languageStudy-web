@@ -56,7 +56,9 @@ function voicesChanged() {
    voice names, so one setting says which voice reads. */
 
 export const AZURE_PREFIX = 'azure:';
-const azureState = { region: azure.DEFAULT_REGION, code: '', voices: [], problem: '' };
+/* saved: how many clips voice/ holds — shown in Settings, so it is visible
+   that a word already heard costs nothing the next time. */
+const azureState = { region: azure.DEFAULT_REGION, code: '', voices: [], problem: '', saved: 0 };
 
 export function azureStatus() {
   return { ...azureState, key: !!azure.getKey() };
@@ -76,6 +78,7 @@ export async function loadAzure(region, code) {
   }
   try {
     azureState.voices = await azure.listVoices({ region: azureState.region, key, code });
+    if (clipStore && clipStore.count) azureState.saved = await clipStore.count().catch(() => azureState.saved);
   } catch (e) {
     azureState.voices = [];
     azureState.problem = e.message;
@@ -159,8 +162,14 @@ function speakDevice(text, code, rate, name) {
   return true;
 }
 
-/* Each text is fetched once per session and replayed from memory after
-   that, so Listen again and a card coming round again cost nothing. */
+/* Where fetched clips are kept between sessions: set by app.js to the
+   store's voice/ directory. speech.js does not know about storage itself. */
+let clipStore = null;
+export function setClipStore(store) { clipStore = store; }
+
+/* Each text is fetched from Azure once, ever: after that it comes from
+   memory this session and from the saved clip in later ones, so Listen
+   again, a card coming round again and tomorrow's practice cost nothing. */
 const azureCache = new Map();
 let player = null;
 let latest = 0;
@@ -171,9 +180,7 @@ async function speakAzure(text, voice, rate, code) {
   const cacheKey = `${voice.name}\n${text}`;
   try {
     if (!azureCache.has(cacheKey)) {
-      const fetching = azure.synthesize({
-        region: azureState.region, key: azure.getKey(), voice: voice.name, locale: voice.locale, text,
-      }).then((blob) => URL.createObjectURL(blob));
+      const fetching = clipFor(voice, text).then((blob) => URL.createObjectURL(blob));
       azureCache.set(cacheKey, fetching);
       fetching.catch(() => azureCache.delete(cacheKey));
     }
@@ -227,6 +234,22 @@ export function voiceOptions(code, chosen = '') {
     ...(neural.length ? [`<optgroup label="This device">`, ...device, '</optgroup>', `<optgroup label="Azure neural voices (your key)">`, ...neural, '</optgroup>'] : device),
     ...(missing ? [`<option value="${esc(chosen)}">${esc(chosen.replace(AZURE_PREFIX, ''))} · ${chosen.startsWith(AZURE_PREFIX) ? 'needs your Azure key' : 'not installed here'}</option>`] : []),
   ].join('');
+}
+
+/* A saved clip if there is one; otherwise Azure, and the answer saved. */
+async function clipFor(voice, text) {
+  const name = await azure.clipName(voice.name, text);
+  const saved = clipStore ? await clipStore.read(name).catch(() => null) : null;
+  if (saved && saved.size) return saved;
+  const blob = await azure.synthesize({
+    region: azureState.region, key: azure.getKey(), voice: voice.name, locale: voice.locale, text,
+  });
+  if (clipStore) {
+    clipStore.write(name, blob)
+      .then((ok) => { if (ok) { azureState.saved++; voicesChanged(); } })
+      .catch((e) => console.error('Could not save a voice clip', e));
+  }
+  return blob;
 }
 
 /* Silences whatever is speaking, and anything still being fetched. */

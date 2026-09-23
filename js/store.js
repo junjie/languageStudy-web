@@ -103,6 +103,22 @@ export function resetQuota() {
 
 /* ── settings ────────────────────────────────────────────────────────── */
 
+/* Saved Azure clips, in voice/. Reading works whatever the store; writing
+   only when something is persisted — otherwise the clip lives for the
+   session, in speech.js's memory. */
+export function readVoiceClip(name) {
+  return storage.readBlob(`voice/${name}`);
+}
+
+export async function writeVoiceClip(name, blob) {
+  if (!state.persistent) return false;
+  return storage.writeBlob(`voice/${name}`, blob);
+}
+
+export async function countVoiceClips() {
+  return (await storage.listIn('voice')).filter((n) => n.endsWith('.mp3')).length;
+}
+
 /* Boot is done: the stored decks, if any, are in place. Called once. */
 export function markReady() {
   state.ready = true;
