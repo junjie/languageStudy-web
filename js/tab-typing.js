@@ -20,7 +20,7 @@ import {
   stats, SCORE_LABEL,
 } from './deck.js';
 import * as speech from './speech.js';
-import { compareAnswer, compareMeaning, normalize, words, diff, accentMarks, escapeHtml, scoreMark } from './text.js';
+import { compareAnswer, compareMeaning, normalize, words, base, diff, accentMarks, escapeHtml, scoreMark } from './text.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -591,11 +591,33 @@ function heardAttempt(typed) {
   const usr = words(typed);
   if (!ref.length || !usr.length) return null;
   const d = diff(ref, usr);
-  /* It has to be recognisably the word: most of it there, and not mostly
-     other words. English typed as a meaning shares nothing with it. */
+  /* Two ways to tell it was the word being typed, not its meaning. Either
+     it is recognisably the word — most of it there, not mostly other words,
+     which catches "biet thu" typed without accents — or it is written in
+     the language being learnt at all: any letter outside plain ASCII, a
+     tone mark or a đ, is not an English meaning. The second is what catches
+     a real mishearing, "nghiệp thực" for "biệt thự", which shares no word
+     with the answer and is exactly when this step is worth having. */
   const matched = d.ok + d.accent;
-  if (!matched || matched * 2 < ref.length || d.extra > matched) return null;
-  return { exact: normalize(typed) === normalize(said), accent: d.accent > 0, d };
+  const recognisable = matched > 0 && matched * 2 >= ref.length && d.extra <= matched;
+  const foreign = /[^\x00-\x7f]/.test(typed.normalize('NFC'));
+  if (!recognisable && !foreign) return null;
+
+  /* Same number of syllables: compare each with its partner, which shows a
+     mishearing syllable by syllable. Otherwise, the word diff. */
+  if (ref.length === usr.length) {
+    const pairs = ref.map((r, i) => ({
+      r, u: usr[i], kind: usr[i] === r ? 'ok' : base(usr[i]) === base(r) ? 'accent' : 'misheard',
+    }));
+    return {
+      exact: pairs.every((p) => p.kind === 'ok'),
+      accent: pairs.some((p) => p.kind === 'accent'),
+      html: pairs.map(({ r, u, kind }) => kind === 'ok' ? `<span class="w">${escapeHtml(u)}</span>`
+        : kind === 'accent' ? `<span class="w w-accent">${escapeHtml(u)}</span>`
+        : `<span class="w w-extra">${escapeHtml(u)}</span><span class="w w-missing">${escapeHtml(r)}</span>`).join(' '),
+    };
+  }
+  return { exact: normalize(typed) === normalize(said), accent: d.accent > 0, html: tokensHtml(d) };
 }
 
 function takeHeard(typed, heard) {
@@ -611,7 +633,7 @@ function takeHeard(typed, heard) {
     ? `<div class="verdict is-ok">You wrote what you heard — spot on</div>`
     : `<div class="verdict is-warn">You wrote what you heard
         <span class="reveal">${escapeHtml(current.front)}</span></div>
-       <div class="typed-back" style="margin-top:6px">you typed ${tokensHtml(heard.d)}</div>${WORD_LEGEND}`;
+       <div class="typed-back" style="margin-top:6px">you typed ${heard.html}</div>${HEARD_LEGEND}`;
 
   const input = $('ty-input');
   input.value = '';
@@ -620,6 +642,11 @@ function takeHeard(typed, heard) {
   renderCheck();
   input.focus();
 }
+
+const HEARD_LEGEND = `<div class="legend" style="margin-top:6px">
+  <span><i class="w w-accent">word</i> wrong tone or accent</span>
+  <span><i class="w w-extra">heard</i><i class="w w-missing">said</i> misheard</span>
+  <span><i class="w w-missing">word</i> missing</span></div>`;
 
 const WORD_LEGEND = `<div class="legend" style="margin-top:6px">
   <span><i class="w w-accent">word</i> wrong accent</span>
