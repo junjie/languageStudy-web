@@ -654,7 +654,10 @@ function checkHeard() {
   el.hidden = false;
   el.innerHTML = heard.exact
     ? `<div class="verdict is-ok">Heard right</div>`
-    : `<div class="verdict is-warn">Heard as <span class="reveal">${escapeHtml(current.front)}</span></div>
+    /* Says what the word is, not what was heard: "Heard as tựa tựa" read as
+       though the learner had heard tựa tựa, the opposite of what happened. */
+    : `<div class="verdict ${heard.misheard ? 'is-bad' : 'is-warn'}">${heard.misheard ? 'Not quite' : 'Close'} — the word is
+        <span class="reveal">${escapeHtml(current.front)}</span></div>
        <div class="typed-back" style="margin-top:6px">you typed ${heard.html}</div>${HEARD_LEGEND}`;
   showWord();
   if (!answered) $('ty-input').focus();
@@ -680,6 +683,7 @@ function markHeard(typed) {
     }));
     return {
       exact: pairs.every((q) => q.kind === 'ok'),
+      misheard: pairs.some((q) => q.kind === 'misheard'),
       accent: pairs.some((q) => q.kind === 'accent'),
       html: pairs.map(({ r, u, kind }) => kind === 'ok' ? `<span class="w">${escapeHtml(u)}</span>`
         : kind === 'accent' ? `<span class="w w-accent">${escapeHtml(u)}</span>`
@@ -687,7 +691,7 @@ function markHeard(typed) {
     };
   }
   const d = diff(ref, usr);
-  return { exact: normalize(typed) === normalize(said), accent: d.accent > 0, html: tokensHtml(d) };
+  return { exact: normalize(typed) === normalize(said), accent: d.accent > 0, misheard: d.missing + d.extra > 0, html: tokensHtml(d) };
 }
 
 const HEARD_LEGEND = `<div class="legend" style="margin-top:6px">
