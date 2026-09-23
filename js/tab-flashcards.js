@@ -11,6 +11,7 @@
    built by hand rather than a dropdown. */
 
 import * as store from './store.js';
+import * as storage from './storage.js';
 import { parseDeck, serializeDeck, importWatchlist, stats, SCORE_LABEL } from './deck.js';
 import { escapeHtml } from './text.js';
 
@@ -220,7 +221,11 @@ async function save() {
   dirty = false;
   validate();
   if (!ok && store.state.persistent) {
-    $('deck-status').textContent = 'Could not write the deck file — reconnect the folder in Settings.';
+    /* A folder write that fails has usually gone stale and wants reconnecting;
+       browser storage has nothing to reconnect, so it is the disk or the quota. */
+    $('deck-status').textContent = storage.backend() === 'folder'
+      ? 'Could not write the deck file — reconnect the folder in Settings.'
+      : 'Could not write the deck file — the browser refused it. Download the deck to be safe.';
     $('deck-status').className = 'status is-bad';
   }
 }

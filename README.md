@@ -2,9 +2,9 @@
 
 Flashcards, typing practice and AI dictation for whatever language you are
 learning. One static page. No account, no server, no database — your cards and
-your audio live in a folder you choose on your own computer, and the only thing
-that ever leaves the machine is a request to Google, signed with your own API
-key.
+your audio stay on your own computer, in a folder you choose where the browser
+allows it, and the only thing that ever leaves the machine is a request to
+Google, signed with your own API key.
 
 **[Open the app →](https://nejra0031.github.io/languageStudy-web/)**
 *(live once GitHub Pages is enabled: Settings → Pages → deploy from `main`, root)*
@@ -27,7 +27,7 @@ without knowing anything about any of them.
 
 ## The four tabs
 
-**Settings** — the folder, your API key, the language, the models, the call
+**Settings** — where your data is saved, your API key, the language, the models, the call
 budget, the prompts, and which voices may read to you.
 
 **Flashcards** — a text box containing the deck file exactly as it is stored.
@@ -47,7 +47,7 @@ Sentences are banked on disk and replay for free forever.
 
 ## Choosing which decks are in play
 
-The deck menu on the Flashcards page lists every deck in your folder with a
+The deck menu on the Flashcards page lists every deck you have with a
 **tickbox** in front of it. The tickbox and the name do two different jobs:
 
 - **Tick a deck** and its words join practice. The Typing and Dictation tabs
@@ -138,9 +138,9 @@ comes up about 25 times as often as a mastered one. A card answered in one deck
 is written back to its own file, never to whichever deck happens to be open in
 the editor.
 
-## Your data folder
+## Where your data lives
 
-The app asks for a folder once and remembers it. It creates:
+The app keeps everything in one directory and creates what it needs:
 
 ```
 settings.json          models, limits, voices, language, prompts,
@@ -153,15 +153,32 @@ audio/<id>.txt         its transcript, translation, target words,
                        deck and difficulty
 ```
 
-Back it up by copying the folder. Move it to another machine by copying it
-there and pointing the app at it.
+Which directory that is depends on the browser, and the app picks for you:
 
-Without a folder the app still runs — you can edit cards and do typing practice
-— but nothing survives a reload.
+**Chrome and Edge** — a folder on disk that you choose, through the File System
+Access API. This is the better home and the one to prefer. The files are yours:
+open them, diff them, back the folder up by copying it, move it to another
+machine and point the app there. Put the folder inside Google Drive, Dropbox or
+iCloud Drive and the sync client gives you multi-device study, version history
+and conflict handling for free — no account with anybody, and nothing for this
+app to do.
 
-**Browser support:** choosing a folder needs the File System Access API, which
-today means Chrome, Edge or another Chromium browser. Everything else works
-anywhere; in a browser without it you can still download a deck as a file.
+**Firefox and Safari** — private browser storage (the origin private file
+system), because neither browser has a folder picker and neither is likely to
+get one. The same files, the same layout, saved across reloads and shared
+between tabs — but they belong to the browser, not to you. No file manager
+shows them, and **clearing site data for the page deletes them.** The app asks
+to be exempt from eviction; if the browser refuses, the Settings page says so.
+Safari also clears script-writable storage for a site left unopened for weeks,
+so open the page now and then, or add it to your Home Screen, which exempts it.
+
+A folder wins wherever it exists, so only one store is ever live: a browser
+that can offer a folder never uses browser storage, and there is nothing to
+migrate between the two.
+
+With neither — an old browser, or a locked-down one — the app still runs and
+you can edit cards and practise typing, but nothing survives a reload. The deck
+download button is the way out.
 
 ## The API key
 
@@ -170,7 +187,7 @@ a free key at [aistudio.google.com/apikey](https://aistudio.google.com/apikey)
 and paste it into Settings.
 
 The key is kept in your browser's `localStorage`. It is deliberately **not**
-written into the data folder, so pointing the app at a folder that happens to be
+written alongside your decks, so pointing the app at a folder that happens to be
 a git clone cannot commit it. It is sent to Google and to nobody else — there is
 no backend here to send it to.
 
@@ -230,7 +247,9 @@ css/app.css           one stylesheet
 js/text.js            comparison, diacritics, word diff
 js/deck.js            deck format, scoring, card selection
 js/gemini.js          API calls, call budget, WAV wrapping
-js/storage.js         the folder
+js/storage.js         the store: layout, files, and which backend is live
+js/fs-folder.js       backend — a folder the user picked (Chromium)
+js/fs-opfs.js         backend — private browser storage (everywhere)
 js/store.js           shared state
 js/tab-*.js           one per tab
 js/defaults.js        settings, prompts and the starter deck

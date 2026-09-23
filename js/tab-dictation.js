@@ -127,8 +127,11 @@ function gate() {
     return;
   }
 
+  /* Worded without naming a folder: where there is no store at all, the
+     browser has none to offer, and telling the user to connect one would send
+     them to a button that is not there. */
   el.innerHTML = !store.state.persistent
-    ? `<div class="banner is-warn">No folder connected — a sentence you generate can be played now, but it is gone on reload and will not score your cards. Connect a folder in Settings to keep the audio and the results.</div>`
+    ? `<div class="banner is-warn">Nothing is being saved — a sentence you generate can be played now, but it is gone on reload and will not score your cards. See Settings for what this browser can keep.</div>`
     : '';
   $('dc-stage').hidden = false;
   renderQuota();
@@ -223,7 +226,7 @@ async function generate() {
       await storage.writeBlob(entry.file, wav);
       await storage.writeText(entry.text_file, sidecar);
     } else {
-      /* No folder: keep it playable for this session only. */
+      /* Nothing is being saved: keep it playable for this session only. */
       entry.blobUrl = URL.createObjectURL(wav);
     }
     store.state.manifest.push(entry);
@@ -314,7 +317,7 @@ async function loadCard(entry) {
   $('dc-result').hidden = true;
   input.focus();
 
-  if (!audio) showError('The audio file for this sentence is missing from the folder.');
+  if (!audio) showError('The audio file for this sentence is missing from the sentence bank.');
   else play();
 }
 

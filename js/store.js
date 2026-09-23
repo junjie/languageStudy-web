@@ -1,6 +1,6 @@
 /* Shared state: the settings, every deck, and the API budget.
 
-   Tabs read from here and call save*(); they never touch the folder
+   Tabs read from here and call save*(); they never touch the store
    themselves. Subscribers are notified after every change so, for example,
    editing a deck in the Flashcards tab immediately changes what the practice
    tabs draw from.
@@ -13,7 +13,7 @@
                                     the decks ticked for practice, which the
                                     Typing and Dictation tabs draw from
 
-   Every deck in the folder is held in state.decks, because practice spans
+   Every deck in the store is held in state.decks, because practice spans
    several of them at once and a card answered in one must be written back to
    its own file — never to whichever deck happens to be open. */
 
@@ -34,7 +34,7 @@ export const state = {
      onto the open deck rather than a second copy of it. */
   decks: { default: STARTER_DECK.map(normalizeCard) },
   manifest: [],
-  /* True once a folder is connected: until then everything is in memory and
+  /* True once a store is connected: until then everything is in memory and
      is lost on reload, which the UI has to keep saying out loud. */
   persistent: false,
 
@@ -279,9 +279,10 @@ export async function saveManifest() {
 
 /* ── connecting ──────────────────────────────────────────────────────── */
 
-/* Read everything the folder holds, creating what a fresh folder lacks.
-   A folder is adopted exactly as it is found: this never overwrites a deck or
-   a settings file that is already there. */
+/* Read everything the store holds, creating what a fresh one lacks. Whether
+   that store is a picked folder or the browser's own is storage.js's business,
+   not this file's. A store is adopted exactly as it is found: this never
+   overwrites a deck or a settings file that is already there. */
 export async function adoptFolder() {
   state.persistent = true;
   await storage.ensureSubdirs();
@@ -332,7 +333,7 @@ export function releaseFolder() {
   emit('deck');
 }
 
-/* Boot with whatever can be had without a folder, so the page is usable the
+/* Boot with whatever can be had without a store, so the page is usable the
    moment it loads: the starter deck, defaults, and any settings remembered
    from a previous in-memory session. */
 export function bootLocal() {

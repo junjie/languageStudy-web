@@ -1,5 +1,5 @@
-/* Settings: the folder, the key, the language, the models, the budget,
-   the prompts and the voices. */
+/* Settings: where data is saved, the key, the language, the models, the
+   budget, the prompts and the voices. */
 
 import * as storage from './storage.js';
 import * as store from './store.js';
@@ -20,30 +20,30 @@ const SAMPLE_TERMS = [
 ];
 
 export function init() {
-  wireFolder();
+  wireStore();
   wireKey();
   wireFields();
   wirePrompts();
   wireVoices();
 
   store.subscribe('settings', render);
-  store.subscribe('folder', renderFolder);
+  store.subscribe('folder', renderStore);
   store.subscribe('quota', renderQuota);
-  store.subscribe('deck', renderFolder);
+  store.subscribe('deck', renderStore);
   render();
-  renderFolder();
+  renderStore();
   renderQuota();
   setInterval(renderQuota, 1000);
 }
 
-/* ── folder ──────────────────────────────────────────────────────────── */
+/* ── where data is saved ─────────────────────────────────────────────── */
 
-function wireFolder() {
-  $('folder-connect').addEventListener('click', async () => {
+function wireStore() {
+  $('store-choose').addEventListener('click', async () => {
     try {
       if (pendingHandle) {
         const ok = await storage.regrant(pendingHandle);
-        if (!ok) { setFolderStatus('Permission refused — nothing is being saved.', 'is-warn'); return; }
+        if (!ok) { setStoreStatus('Permission refused — nothing is being saved.', 'is-warn'); return; }
         pendingHandle = null;
       } else {
         await storage.connect();
@@ -52,68 +52,80 @@ function wireFolder() {
     } catch (e) {
       if (e && e.name === 'AbortError') return;
       console.error(e);
-      setFolderStatus('Could not open that folder: ' + e.message, 'is-bad');
+      setStoreStatus('Could not open that folder: ' + e.message, 'is-bad');
     }
   });
 
-  $('folder-disconnect').addEventListener('click', async () => {
+  $('store-disconnect').addEventListener('click', async () => {
     await storage.disconnect();
     store.releaseFolder();
   });
 
-  $('folder-export').addEventListener('click', () => {
+  $('store-export').addEventListener('click', () => {
     storage.download(`${store.state.deckName}.json`, serializeDeck(store.state.cards));
   });
 }
 
-export async function restoreFolder() {
+export async function restoreStore() {
   const result = await storage.restore();
-  if (result.state === 'connected') {
+  if (result.state === 'folder' || result.state === 'browser') {
     await store.adoptFolder();
     return;
   }
   if (result.state === 'needs-permission') {
     pendingHandle = result.handle;
-    $('folder-connect').textContent = `Reconnect "${result.name}"`;
-    setFolderStatus(`"${result.name}" is remembered but the browser needs you to allow it again.`, 'is-warn');
+    $('store-choose').textContent = `Reconnect "${result.name}"`;
+    setStoreStatus(`"${result.name}" is remembered but the browser needs you to allow it again.`, 'is-warn');
     return;
   }
   if (result.state === 'unsupported') {
-    $('folder-connect').disabled = true;
-    setFolderStatus('This browser cannot open a folder. Chrome or Edge can; elsewhere, use the deck download button.', 'is-warn');
+    setStoreStatus('This browser can save nothing: it has neither a folder picker nor writable browser storage. Use the deck download button, or a current Chrome, Edge, Firefox or Safari.', 'is-warn');
   }
 }
 
-function renderFolder() {
-  const name = storage.folderName();
-  const connected = !!name;
-  $('folder-disconnect').hidden = !connected;
-  $('folder-export').hidden = !store.state.cards.length;
-  $('folder-connect').hidden = connected;
-  $('folder-hint').textContent = connected ? name : 'not connected';
-  if (connected) {
-    const n = store.state.deckNames.length;
-    setFolderStatus(`Saving to "${name}" — ${n} deck${n === 1 ? '' : 's'}, ${store.state.manifest.length} banked sentence${store.state.manifest.length === 1 ? '' : 's'}.`, 'is-ok');
+function renderStore() {
+  const kind = storage.backend();
+  const where = storage.label();
+  const decks = store.state.deckNames.length;
+  const banked = store.state.manifest.length;
+  const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+
+  /* Choosing a folder is only offered where folders exist. Elsewhere browser
+     storage is already live and there is nothing to choose between. */
+  $('store-choose').hidden = kind === 'folder' || !storage.SUPPORTS_FOLDER;
+  $('store-disconnect').hidden = kind !== 'folder';
+  $('store-export').hidden = !store.state.cards.length;
+  $('store-hint').textContent = where || 'nothing is being saved';
+
+  if (kind === 'folder') {
+    setStoreStatus(`Saving to "${where}" — ${plural(decks, 'deck')}, ${plural(banked, 'banked sentence')}.`, 'is-ok');
+  } else if (kind === 'browser') {
+    /* Said every time, because these files are ones the user cannot go and
+       copy: the only warning they will get is this line. */
+    const risk = storage.isPersisted()
+      ? 'Clearing site data for this page deletes it.'
+      : 'The browser has not promised to keep it: clearing site data, or weeks without opening this page, deletes it.';
+    setStoreStatus(`Saving in this browser — ${plural(decks, 'deck')}, ${plural(banked, 'banked sentence')}. ${risk}`, 'is-ok');
   } else if (!pendingHandle) {
-    setFolderStatus('Not connected. The app still works, but nothing will be saved.', '');
+    setStoreStatus('Nothing is being saved. The app still works, but a reload loses it.', '');
   }
   updateBar();
 }
 
-function setFolderStatus(text, cls) {
-  const el = $('folder-status');
+function setStoreStatus(text, cls) {
+  const el = $('store-status');
   el.textContent = text;
   el.className = 'status ' + (cls || '');
 }
 
 export function updateBar() {
   const el = $('bar-status');
-  const name = storage.folderName();
+  const where = storage.label();
   const s = store.state.settings;
-  const bits = [s.targetLanguage || '—', name ? `folder: ${name}` : 'no folder'];
+  const bits = [s.targetLanguage || '—', where ? `saving to ${where}` : 'not saving'];
   if (!storage.getApiKey()) bits.push('no API key');
   el.textContent = bits.join('  ·  ');
-  el.className = 'bar-status ' + (name ? 'is-live' : 'is-off');
+  el.className = 'bar-status ' + (where ? 'is-live' : 'is-off');
 }
 
 /* ── key ─────────────────────────────────────────────────────────────── */

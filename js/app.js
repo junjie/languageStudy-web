@@ -66,8 +66,8 @@ async function boot() {
   try { start = localStorage.getItem('lsw.tab') || 'settings'; } catch (e) { /* ignore */ }
   show(TABS[start] ? start : 'settings');
 
-  /* Last, because it may adopt a folder and re-render everything. */
-  await settings.restoreFolder();
+  /* Last, because it may adopt a store and re-render everything. */
+  await settings.restoreStore();
 }
 
 boot();

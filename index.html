@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Language Study</title>
-<meta name="description" content="Flashcards, typing practice and AI dictation for any language. Your own API key, your own folder, no accounts and no server.">
+<meta name="description" content="Flashcards, typing practice and AI dictation for any language. Your own API key, your own files, no accounts and no server.">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect width='16' height='16' fill='%230f1117'/><rect x='3' y='3' width='10' height='10' fill='%23d4b455'/></svg>">
 <link rel="stylesheet" href="css/app.css">
 </head>
@@ -30,22 +30,22 @@
 <div class="wrap">
 
   <div class="block">
-    <div class="block-head"><h2>Data folder</h2><span class="hint" id="folder-hint"></span></div>
+    <div class="block-head"><h2>Where your data lives</h2><span class="hint" id="store-hint"></span></div>
     <div class="block-body">
-      <p class="note">Everything you practise is kept in one folder on this device: decks, settings, and the audio the dictation tab generates. Nothing is uploaded and there is no account. Pick an empty folder; the app creates what it needs.</p>
+      <p class="note">Your decks, your settings and the audio the dictation tab generates all stay on this device. Nothing is uploaded and there is no account. <strong>Chrome and Edge</strong> let you pick a folder, which is the better home: you can see the files, back them up by copying them, and put the folder inside Drive or Dropbox to get sync for free. <strong>Firefox and Safari</strong> have no folder picker, so the same files go into private browser storage instead — saved across reloads, but only for as long as this page's site data lasts.</p>
       <div class="row">
-        <button class="btn btn--primary" id="folder-connect">Choose folder</button>
-        <button class="btn" id="folder-disconnect" hidden>Disconnect</button>
-        <button class="btn btn--sm" id="folder-export" hidden>Download current deck</button>
+        <button class="btn btn--primary" id="store-choose">Choose folder</button>
+        <button class="btn" id="store-disconnect" hidden>Disconnect</button>
+        <button class="btn btn--sm" id="store-export" hidden>Download current deck</button>
       </div>
     </div>
-    <div class="status" id="folder-status">Not connected. The app still works, but nothing will be saved.</div>
+    <div class="status" id="store-status">Working out where this browser can save.</div>
   </div>
 
   <div class="block">
     <div class="block-head"><h2>Gemini API key</h2><span class="hint">needed for dictation only</span></div>
     <div class="block-body">
-      <p class="note">Dictation calls the Gemini API directly from this page with <strong>your</strong> key. It is stored in this browser's local storage, never in the data folder, so it cannot end up in a git commit, and it is sent to nobody but Google. Get one free at <code>aistudio.google.com/apikey</code>.</p>
+      <p class="note">Dictation calls the Gemini API directly from this page with <strong>your</strong> key. It is stored in this browser's local storage, never alongside your decks, so it cannot end up in a git commit, and it is sent to nobody but Google. Get one free at <code>aistudio.google.com/apikey</code>.</p>
       <label class="field"><span>API key</span>
         <input type="password" id="api-key" placeholder="AIza…" autocomplete="off" spellcheck="false">
       </label>
@@ -174,7 +174,7 @@
           <button class="btn btn--sm" id="deck-import">Import watchlist…</button>
         </div>
       </div>
-      <p class="note">Open the deck menu and you get every deck in your folder, each with a <strong>tickbox</strong> in front of it. <strong>Ticking a deck puts its words into practice:</strong> the Typing and Dictation tabs draw from every ticked deck at once, and ignore the rest. Click a deck's <em>name</em> instead of its tickbox to open it in the editor below — opening a deck and practising it are separate things, so you can edit one deck while drilling another. At least one deck is always ticked; the last tick cannot be removed, because a practice tab with nothing to draw from has nothing to do.</p>
+      <p class="note">Open the deck menu and you get every deck you have, each with a <strong>tickbox</strong> in front of it. <strong>Ticking a deck puts its words into practice:</strong> the Typing and Dictation tabs draw from every ticked deck at once, and ignore the rest. Click a deck's <em>name</em> instead of its tickbox to open it in the editor below — opening a deck and practising it are separate things, so you can edit one deck while drilling another. At least one deck is always ticked; the last tick cannot be removed, because a practice tab with nothing to draw from has nothing to do.</p>
       <p class="note">Dictation goes one step further: each sentence is written from the words of a <strong>single</strong> deck, never a mixture, and the audio is saved with the deck it came from and the <strong>learner level</strong> set in Settings at the time. That tag is what keeps a banked sentence in its lane — it only comes back up while its own deck is ticked — and it is a permanent record of the difficulty it was written at, even after you change that setting.</p>
       <p class="note">Below is the deck file itself: a JSON array, one object per card. <strong>front</strong> is the word in the language you are learning, <strong>back</strong> is its meaning; <strong>notes</strong> is optional. <strong>score</strong>, <strong>recent</strong> and <strong>last_seen</strong> are written by the practice tabs, so you can leave them out of a card you type by hand and they will be filled in.</p>
       <textarea class="editor" id="deck-editor" spellcheck="false" aria-label="Deck contents as JSON"></textarea>
