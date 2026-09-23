@@ -13,7 +13,7 @@
 
 import * as store from './store.js';
 import { pickWeighted, inScope, recordResult, amendLastToRight, addAlternative, meanings, stats, SCORE_LABEL } from './deck.js';
-import { compareAnswer, accentMarks, escapeHtml, scoreMark } from './text.js';
+import { compareAnswer, compareMeaning, normalize, accentMarks, escapeHtml, scoreMark } from './text.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -241,13 +241,13 @@ function settle(ok) {
 
 /* The best of the verdicts against every accepted meaning. */
 function bestVerdict(typed, options) {
-  const verdicts = options.map((m) => compareAnswer(typed, m));
+  const verdicts = options.map((m) => compareMeaning(typed, m));
   return verdicts.includes('exact') ? 'exact' : verdicts.includes('accent') ? 'accent' : 'wrong';
 }
 
 function acceptAnswer() {
   if (!last || !current) return;
-  addAlternative(current, last.typed, (a, b) => compareAnswer(a, b) === 'exact');
+  addAlternative(current, last.typed, (a, b) => compareMeaning(a, b) === 'exact');
   const move = { ...amendLastToRight(current), before: last.before };
   tally.right++;
   tally.wrong--;
@@ -282,7 +282,11 @@ function feedback(verdict, typed, expected, move) {
     head = `<div class="verdict is-ok">Accepted${moved}</div>
       <div class="typed-back" style="margin-top:6px">“${escapeHtml(typed)}” is now saved as another meaning, beside <strong>${escapeHtml(expected)}</strong></div>`;
   } else if (verdict === 'exact') {
-    head = `<div class="verdict is-ok">Correct${moved}</div>`;
+    /* Right by one part of a longer meaning: show the whole of it, since the
+       rest is worth reading too. */
+    const whole = normalize(typed) !== normalize(expected)
+      ? ` <span class="reveal">${escapeHtml(expected)}</span>` : '';
+    head = `<div class="verdict is-ok">Correct${whole}${moved}</div>`;
   } else if (verdict === 'accent') {
     /* The word was there. Show precisely which marks went astray. */
     const marked = markAccents(typed, expected);

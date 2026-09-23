@@ -134,6 +134,41 @@ export function compareAnswer(typed, expected) {
   return 'wrong';
 }
 
+/* A meaning is judged more loosely than a word. A card's back is written for
+   reading, not for typing back verbatim, and in practice it is written like
+   "to go back; to return" or "to deal with (penalise)". So, for meanings
+   only:
+     - each part between semicolons is a meaning on its own;
+     - a bracketed note is context, and can be left out;
+     - a leading "to" on a verb is optional.
+   Commas are deliberately NOT split on: in a sentence or a pattern they are
+   grammar ("If I were him, I'd have quit"), and accepting one half would be
+   accepting a wrong answer. */
+export function meaningVariants(meaning) {
+  const noNotes = (s) => String(s).replace(/\([^)]*\)/g, ' ');
+  const parts = String(meaning || '').split(';');
+  const all = [meaning, noNotes(meaning), ...parts, ...parts.map(noNotes)];
+  return [...new Set(all.map((v) => String(v).trim()).filter((v) => normalize(v)))];
+}
+
+function dropTo(s) {
+  return normalize(s).replace(/^to /, '');
+}
+
+/* 'exact', 'accent' or 'wrong', the best over every way of reading the
+   meaning. Same three verdicts as compareAnswer, so the UI treats both alike. */
+export function compareMeaning(typed, meaning) {
+  const t = dropTo(typed);
+  if (!t) return 'wrong';
+  let best = 'wrong';
+  for (const v of meaningVariants(meaning)) {
+    const verdict = compareAnswer(t, dropTo(v));
+    if (verdict === 'exact') return 'exact';
+    if (verdict === 'accent') best = 'accent';
+  }
+  return best;
+}
+
 /* Character-level marks for an accent-only miss, so the offending letters can
    be highlighted. Lengths match because the base forms are equal. */
 export function accentMarks(typed, expected) {

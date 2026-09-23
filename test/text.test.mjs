@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { containsLoosely, normalize, words, base, contains, diff, compareAnswer, accentMarks } from '../js/text.js';
+import { compareMeaning, containsLoosely, normalize, words, base, contains, diff, compareAnswer, accentMarks } from '../js/text.js';
 
 test('normalize keeps diacritics but drops case and punctuation', () => {
   assert.equal(normalize('  Tôi KHÔNG rành, đường!  '), 'tôi không rành đường');
@@ -79,4 +79,25 @@ test('containsLoosely hears a word whatever its accents', () => {
   assert.ok(containsLoosely(heard, 'tiện lợi'));
   assert.ok(!containsLoosely(heard, 'tiện ích'));
   assert.ok(containsLoosely(words('di dau'), 'đi đâu (to go)'));
+});
+
+test('meanings accept one semicolon part, drop bracketed notes and an optional "to"', () => {
+  const cases = [
+    ['return', 'to go back; to return', 'exact'],
+    ['to go back', 'to go back; to return', 'exact'],
+    ['complain', 'to complain', 'exact'],
+    ['to deal with', 'to handle; to deal with (penalise)', 'exact'],
+    ['driving licence', 'driving licence (formal)', 'exact'],
+    ['boyfriend/girlfriend', 'baby; (casual) boyfriend/girlfriend', 'exact'],
+    ['Keep the change', 'Keep the change!', 'exact'],
+    ['convenient, handy', 'convenient, handy (of an object/method)', 'exact'],
+    ['convenient', 'convenient, handy (of an object/method)', 'wrong'],
+    ["If I were him", "If I were him, I'd have quit already.", 'wrong'],
+    ['go', 'to go back', 'wrong'],
+    ['', 'to go', 'wrong'],
+    ['to', 'to go', 'wrong'],
+  ];
+  for (const [typed, meaning, want] of cases) {
+    assert.equal(compareMeaning(typed, meaning), want, `${JSON.stringify(typed)} vs ${JSON.stringify(meaning)}`);
+  }
 });

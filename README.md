@@ -95,6 +95,12 @@ With one exception: **a card with fewer than 8 answers can never score above
 
 ### Other ways to say the meaning
 
+The meaning you type is checked more loosely than the word. Each part between
+semicolons counts on its own, bracketed notes can be left out, and a leading
+"to" is optional — so `return`, `to go back` and `to return` are all right
+for `to go back; to return`, and `complain` is right for `to complain`. Commas
+are not split on, because in a sentence they are grammar, not a list.
+
 There is usually more than one fair English rendering of a word, so when you
 type a meaning that is marked wrong, **Accept my answer** turns it right: the
 miss is taken back out of `recent` and a right answer recorded instead, and
