@@ -182,25 +182,32 @@ function next() {
           <input type="text" class="answer-input" id="ty-input" lang="${shownSide === 'front' ? 'en' : code}" autocomplete="off" autocapitalize="off" spellcheck="false">
         </label>
         <div class="row" style="margin-top:12px">
-          <button class="btn btn--primary" id="ty-check">Check</button>
+          <button class="btn btn--primary" id="ty-check"></button>
           <button class="btn btn--primary" id="ty-next" hidden>Next card</button>
-          <button class="btn" id="ty-reveal" title="Shows the answer and counts it as a miss">Show answer</button>
           <button class="btn" id="ty-skip" title="Moves on without counting anything">Skip</button>
         </div>
         <div id="ty-feedback" style="margin-top:16px"></div>
       </div>
     </div>`;
 
-  $('ty-check').addEventListener('click', check);
+  /* One button, two jobs, decided by whether anything has been typed: with
+     an empty box there is nothing to check, so it offers the answer; the
+     moment there is something, it checks it. Two buttons side by side meant
+     a stray click on Show answer threw away an answer that could have been
+     marked. */
+  $('ty-check').addEventListener('click', () => ($('ty-input').value.trim() ? check() : reveal()));
   $('ty-next').addEventListener('click', next);
   $('ty-skip').addEventListener('click', next);
-  $('ty-reveal').addEventListener('click', reveal);
   const input = $('ty-input');
+  input.addEventListener('input', renderCheck);
   input.addEventListener('keydown', (e) => {
     if (e.key !== 'Enter') return;
     e.preventDefault();
-    if (answered) next(); else check();
+    /* Enter never gives up on a card: a second Enter after Next would land
+       on the new, empty box and count a miss nobody meant. */
+    if (answered) next(); else if (input.value.trim()) check();
   });
+  renderCheck();
   input.focus();
   renderPrevious();
   /* The word is on screen, so hear it now. When it is the answer it waits
@@ -336,13 +343,19 @@ function renderTally() {
   $('ty-wrong').textContent = tally.wrong;
 }
 
+function renderCheck() {
+  const btn = $('ty-check');
+  const typed = !!$('ty-input').value.trim();
+  btn.textContent = typed ? 'Check' : 'Show answer';
+  btn.title = typed ? 'Marks what you typed' : 'Shows the answer and counts it as a miss';
+}
+
 /* Lock the card once it has a verdict, and hand the keyboard to Next. */
 function settle(ok) {
   const input = $('ty-input');
   input.disabled = true;
   input.className = 'answer-input ' + (ok ? 'is-ok' : 'is-bad');
   $('ty-check').hidden = true;
-  $('ty-reveal').hidden = true;
   $('ty-skip').hidden = true;
   const nextBtn = $('ty-next');
   nextBtn.hidden = false;
