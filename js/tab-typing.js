@@ -20,7 +20,7 @@ import {
   stats, SCORE_LABEL,
 } from './deck.js';
 import * as speech from './speech.js';
-import { compareAnswer, compareMeaning, normalize, words, diff, accentMarks, escapeHtml, scoreMark } from './text.js';
+import { compareAnswer, compareMeaning, normalize, words, base, diff, accentMarks, escapeHtml, scoreMark } from './text.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -76,7 +76,6 @@ export function init() {
   $('ty-card').addEventListener('click', (e) => {
     const hit = (sel) => e.target.closest(sel);
     if (hit('[data-say]')) say(true);
-    else if (hit('#ty-show-word')) showWord();
     else if (hit('#ty-accept')) acceptAnswer();
     else if (hit('#ty-notes-edit') || hit('#ty-fix-meaning')) renderNotes(true);
     else if (hit('#ty-notes-save')) saveNotes();
@@ -171,15 +170,17 @@ function next() {
         <span>${current.last_seen ? 'last seen ' + current.last_seen : 'new card'}</span>
       </div>
       <div class="card-body">
-        <div class="prompt-label">${shownSide === 'front' ? escapeHtml(store.state.settings.targetLanguage) + (listening ? ' — listen' : '') : 'Meaning'}</div>
+        <div class="prompt-label">${shownSide === 'front' ? escapeHtml(store.state.settings.targetLanguage) : 'Meaning'}</div>
         <div class="prompt" id="ty-prompt" lang="${shownSide === 'front' ? code : 'en'}" ${listening ? 'hidden' : ''}>${escapeHtml(shown)}</div>
-        ${listening ? '<div class="redacted" id="ty-listen" role="img" aria-label="Word hidden — listen to it"></div>' : ''}
+        ${listening ? `<input type="text" class="answer-input" id="ty-hear" lang="${code}" placeholder="Type what you hear"
+          aria-label="Type what you hear" autocomplete="off" autocapitalize="off" spellcheck="false">` : ''}
         ${shownSide === 'front' ? `<div class="row" style="margin-top:8px">
           <button class="btn btn--sm" data-say>Listen again</button>
-          ${listening ? '<button class="btn btn--sm" id="ty-show-word">Show word</button>' : ''}
+          ${listening ? '<button class="btn btn--sm" id="ty-hear-btn"></button>' : ''}
         </div>` : ''}
+        ${listening ? '<div id="ty-heard" style="margin-top:12px" hidden></div>' : ''}
         <label class="field" style="margin-top:24px">
-          <span>Type ${escapeHtml(askFor)}</span>
+          <span id="ty-ask">Type ${escapeHtml(askFor)}</span>
           <input type="text" class="answer-input" id="ty-input" lang="${shownSide === 'front' ? 'en' : code}" autocomplete="off" autocapitalize="off" spellcheck="false">
         </label>
         <div class="row" style="margin-top:12px">
@@ -209,7 +210,7 @@ function next() {
     if (answered) next(); else if (input.value.trim()) check();
   });
   renderCheck();
-  input.focus();
+  if (listening) wireHear(); else input.focus();
   renderPrevious();
   /* The word is on screen, so hear it now. When it is the answer it waits
      until the answer is in — see settle(). */
@@ -221,10 +222,9 @@ function showWord() {
   const word = $('ty-prompt');
   if (!word || !word.hidden) return;
   word.hidden = false;
-  $('ty-listen')?.remove();
-  const label = document.querySelector('#ty-card .prompt-label');
-  if (label) label.textContent = label.textContent.replace(/ — listen$/, '');
-  $('ty-show-word')?.remove();
+  /* Once the word is visible, transcribing it would be copying. */
+  document.getElementById('ty-hear')?.remove();
+  document.getElementById('ty-hear-btn')?.remove();
 }
 
 function emptyState() {
@@ -344,6 +344,10 @@ function check() {
   const input = $('ty-input');
   const typed = input.value.trim();
   if (!typed) { input.focus(); return; }
+
+  /* A transcription typed but never checked is not thrown away. */
+  const hear = document.getElementById('ty-hear');
+  if (hear && hear.value.trim()) checkHeard();
 
   answered = true;
   const expected = shownSide === 'front' ? current.back : current.front;
@@ -583,8 +587,122 @@ function wordMarks(verdict, typed, expected) {
   if (verdict !== 'wrong' || shownSide !== 'back') return '';
   const d = diff(words(expected), words(typed));
   if (!d.ok && !d.accent) return '';
+  return tokensHtml(d);
+}
+
+function tokensHtml(d) {
   const cls = { ok: '', accent: 'w-accent', missing: 'w-missing', extra: 'w-extra' };
   return d.tokens.map(({ kind, text }) => `<span class="w ${cls[kind]}">${escapeHtml(text)}</span>`).join(' ');
+}
+
+/* ── typing what you hear ────────────────────────────────────────────── */
+
+/* With the word hidden and only heard, there are two things to practise:
+   hearing it right, and knowing what it means. So the card has two boxes.
+   The first, where the cursor starts, takes what was heard; checking it
+   marks the spelling and tones syllable by syllable, uncovers the word and
+   moves on to the meaning. Its button offers Show word while it is empty,
+   which skips the transcription. Nothing typed there is scored — the card's
+   score rests on the meaning — but a tone slip puts the card on the
+   Accents list and an exact transcription takes it off, by the same rule
+   as anywhere else. The meaning box can be answered at any point, from
+   sound alone. */
+function wireHear() {
+  const hear = $('ty-hear');
+  const btn = $('ty-hear-btn');
+  const render = () => {
+    const typed = !!hear.value.trim();
+    btn.textContent = typed ? 'Check' : 'Show word';
+    btn.title = typed ? 'Marks what you heard, then shows the word' : 'Shows the word without transcribing it';
+  };
+  hear.addEventListener('input', render);
+  hear.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    /* Enter only ever checks, as in the meaning box. */
+    if (hear.value.trim()) checkHeard();
+  });
+  btn.addEventListener('click', () => (hear.value.trim() ? checkHeard() : skipHeard()));
+  render();
+  hear.focus();
+}
+
+function checkHeard() {
+  const hear = document.getElementById('ty-hear');
+  if (!hear || !current) return;
+  const typed = hear.value.trim();
+  const heard = markHeard(typed);
+  /* The box stood where the word goes; the word takes its place, and what
+     was typed is shown marked underneath. */
+  hear.remove();
+  $('ty-hear-btn').remove();
+
+  if (heard.exact) delete current.accent_slip;
+  else if (heard.accent) current.accent_slip = true;
+  if (heard.exact || heard.accent) store.cardAnswered(current);
+
+  /* The word itself is on screen just above, so this is only what was heard,
+     marked syllable by syllable to be read against it, and a line in words
+     saying how it compares — no legend to decode. */
+  const el = $('ty-heard');
+  el.hidden = false;
+  el.innerHTML = `<div class="verdict ${heard.exact ? 'is-ok' : heard.bad ? 'is-bad' : 'is-warn'}">You heard
+      <span class="heard-marks">${heard.html}</span></div>
+    <div class="typed-back" style="margin-top:6px">${escapeHtml(heard.summary)}</div>`;
+  showWord();
+  if (!answered) $('ty-input').focus();
+}
+
+/* Show word with nothing transcribed: the word is uncovered, and typing it
+   back after that would be copying, so the first box goes. */
+function skipHeard() {
+  showWord();
+  if (!answered) $('ty-input').focus();
+}
+
+/* How a transcription compares with the word. Returns the typed syllables
+   marked — right, right sound with the wrong tone, misheard — with a "…"
+   where one was left out, and a sentence saying the same in words.
+   Syllables are compared pairwise when the counts agree, which shows a
+   mishearing ("nghiệp thực" for "biệt thự") one syllable at a time;
+   otherwise they are aligned by the word diff. */
+function markHeard(typed) {
+  const said = current.front.replace(/\([^)]*\)/g, ' ');
+  const ref = words(said);
+  const usr = words(typed);
+  let marks;
+  if (ref.length === usr.length) {
+    marks = ref.map((r, i) => ({ text: usr[i], kind: usr[i] === r ? 'ok' : base(usr[i]) === base(r) ? 'accent' : 'misheard' }));
+  } else {
+    const kind = { ok: 'ok', accent: 'accent', extra: 'misheard', missing: 'missing' };
+    marks = diff(ref, usr).tokens.map((t) => ({ text: t.kind === 'missing' ? '…' : t.text, kind: kind[t.kind] }));
+  }
+  const count = (k) => marks.filter((m) => m.kind === k).length;
+  const c = { misheard: count('misheard'), accent: count('accent'), missing: count('missing') };
+  const exact = !c.misheard && !c.accent && !c.missing;
+  const cls = { ok: '', accent: 'w-accent', misheard: 'w-missing', missing: 'w-missing' };
+  const tip = { ok: 'right', accent: 'right sound, wrong tone', misheard: 'misheard', missing: 'left out' };
+  return {
+    exact,
+    accent: c.accent > 0,
+    bad: c.misheard > 0 || c.missing > 0,
+    html: marks.map((m) => `<span class="w ${cls[m.kind]}" title="${tip[m.kind]}">${escapeHtml(m.text)}</span>`).join(' '),
+    summary: exact ? 'Heard right.' : heardSummary(c, ref.length),
+  };
+}
+
+function heardSummary({ misheard, accent, missing }, total) {
+  const n = (k, word = 'syllable') => `${k} ${word}${k === 1 ? '' : 's'}`;
+  const parts = [];
+  if (misheard) {
+    parts.push(misheard === total && !accent && !missing
+      ? (total === 1 ? 'misheard' : total === 2 ? 'both syllables misheard' : `all ${total} syllables misheard`)
+      : `${n(misheard)} misheard`);
+  }
+  if (accent) parts.push(`wrong tone on ${n(accent)}`);
+  if (missing) parts.push(`${n(missing)} left out`);
+  const text = parts.join(', ');
+  return `${text[0].toUpperCase()}${text.slice(1)} — compare with the word above.`;
 }
 
 const WORD_LEGEND = `<div class="legend" style="margin-top:6px">
