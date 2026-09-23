@@ -26,6 +26,7 @@ import { RateLimiter, createClient } from './gemini.js';
 const SETTINGS_FILE = 'settings.json';
 const QUOTA_FILE = 'audio/quota.json';
 const MANIFEST_FILE = 'audio/manifest.json';
+const SHADOW_FILE = 'shadowing/manifest.json';
 
 export const state = {
   settings: withDefaults(null),
@@ -34,7 +35,13 @@ export const state = {
   /* name -> cards. The one store of card objects; state.cards is a window
      onto the open deck rather than a second copy of it. */
   decks: { default: STARTER_DECK.map(normalizeCard) },
+  /* The one sentence bank. Dictation and Shadowing both draw from it and both
+     write into it, so a sentence written on either tab is immediately
+     available on the other and nothing in an entry says which tab made it. */
   manifest: [],
+  /* The shadowing session index — one row per set handed in. The recordings
+     and the feedback live in their own files beside it. */
+  shadowSessions: [],
   /* True once a store is connected: until then everything is in memory and
      is lost on reload, which the UI has to keep saying out loud. */
   persistent: false,
@@ -43,7 +50,14 @@ export const state = {
   set cards(cards) { this.decks[this.deckName] = cards; },
 };
 
-const subs = { settings: new Set(), deck: new Set(), folder: new Set(), quota: new Set() };
+const subs = {
+  settings: new Set(), deck: new Set(), folder: new Set(), quota: new Set(),
+  /* The sentence bank changed. Both practice tabs listen, so a sentence
+     written on one updates the other's counts without either having to be the
+     tab you happen to be looking at. */
+  bank: new Set(),
+  shadow: new Set(),
+};
 
 export function subscribe(topic, fn) {
   subs[topic].add(fn);
@@ -287,10 +301,124 @@ export function findCard(front, preferred) {
   return null;
 }
 
-/* ── the dictation bank ──────────────────────────────────────────────── */
+/* ── the sentence bank ───────────────────────────────────────────────── */
 
+/* Shared by Dictation and Shadowing. Writing it emits, so the tab that is not
+   in front of you still has the right counts when you switch to it. */
 export async function saveManifest() {
   if (state.persistent) await storage.writeJson(MANIFEST_FILE, state.manifest);
+  emit('bank');
+}
+
+/* Whether a banked sentence belongs to the decks currently ticked.
+
+   One rule, in one place, because both practice tabs ask it and an answer
+   that differed between them would mean a sentence you could shadow but not
+   hear, or the reverse. Sentences banked before decks were tagged carry no
+   deck at all; those are placed by their target words instead, so an older
+   folder keeps working rather than emptying out. */
+export function bankInScope(entry) {
+  if (!entry) return false;
+  if (entry.deck) return isPracticeDeck(entry.deck);
+  const known = new Set(practiceCards().map((c) => c.front));
+  return (entry.terms || []).some((t) => known.has(t));
+}
+
+/* Both tabs count on the same entry. `times_practiced` is dictations typed,
+   `times_shadowed` is sets it was read aloud in — kept apart because they
+   answer different questions, and because each tab prefers what the other has
+   not used yet. */
+export async function markPractised(entry) {
+  entry.times_practiced = (entry.times_practiced || 0) + 1;
+  entry.last_practiced = new Date().toISOString().slice(0, 10);
+  await saveManifest();
+}
+
+export async function markShadowed(entries) {
+  const today = new Date().toISOString().slice(0, 10);
+  for (const entry of entries) {
+    if (!entry) continue;
+    entry.times_shadowed = (entry.times_shadowed || 0) + 1;
+    entry.last_shadowed = today;
+  }
+  await saveManifest();
+}
+
+/* ── the shadowing sessions ──────────────────────────────────────────── */
+
+export function sessionPath(id) {
+  return `shadowing/${id}.json`;
+}
+
+export async function saveShadowIndex() {
+  if (state.persistent) await storage.writeJson(SHADOW_FILE, state.shadowSessions);
+  emit('shadow');
+}
+
+/* The session file is the record; the index is a summary of it kept beside it
+   so the history list can be drawn without opening every session. Both are
+   written together, index last, so a crash between them leaves the index
+   behind the truth rather than ahead of it. */
+export async function saveSession(session) {
+  if (state.persistent) await storage.writeJson(sessionPath(session.id), session);
+  const row = summariseSession(session);
+  const at = state.shadowSessions.findIndex((s) => s.id === session.id);
+  if (at === -1) state.shadowSessions.unshift(row);
+  else state.shadowSessions[at] = row;
+  await saveShadowIndex();
+}
+
+function summariseSession(session) {
+  return {
+    id: session.id,
+    created: session.created,
+    status: session.status,
+    itemCount: (session.items || []).length,
+    recorded: (session.items || []).filter((i) => i.file).length,
+    language: session.language,
+    decks: [...new Set((session.items || []).map((i) => i.deck).filter(Boolean))],
+  };
+}
+
+export async function loadSession(id) {
+  if (!state.persistent) return null;
+  return storage.readJson(sessionPath(id));
+}
+
+/* Takes the recordings with it. An index row whose blobs are still on disk
+   would leave voice recordings in a folder the app no longer lists, which is
+   the one kind of leftover this feature must not create. */
+export async function deleteSession(id) {
+  const session = await loadSession(id);
+  if (state.persistent) {
+    for (const item of (session && session.items) || []) {
+      if (item.file) await storage.remove(item.file);
+    }
+    /* Anything else carrying this id — a take whose session file never landed,
+       or one written under a mime this build no longer uses. */
+    for (const name of await storage.listIn('shadowing')) {
+      if (name.startsWith(`${id}_`) || name === `${id}.json`) await storage.remove(`shadowing/${name}`);
+    }
+  }
+  state.shadowSessions = state.shadowSessions.filter((s) => s.id !== id);
+  await saveShadowIndex();
+}
+
+/* Every recording, everywhere. The release valve for a data folder that has
+   been accumulating sessions for a year. */
+export async function deleteAllSessions() {
+  const ids = state.shadowSessions.map((s) => s.id);
+  for (const id of ids) await deleteSession(id);
+  if (state.persistent) {
+    /* Sweep whatever is left, including files from a session whose index row
+       went missing. manifest.json is the index itself and stays. */
+    for (const name of await storage.listIn('shadowing')) {
+      if (name !== 'manifest.json') await storage.remove(`shadowing/${name}`);
+    }
+  }
+  state.shadowSessions = [];
+  await saveShadowIndex();
+  return ids.length;
 }
 
 /* ── the bundle: everything out, and back in ─────────────────────────── */
@@ -371,6 +499,9 @@ export async function adoptFolder() {
   state.manifest = (await storage.readJson(MANIFEST_FILE)) || [];
   if (!Array.isArray(state.manifest)) state.manifest = [];
 
+  state.shadowSessions = (await storage.readJson(SHADOW_FILE)) || [];
+  if (!Array.isArray(state.shadowSessions)) state.shadowSessions = [];
+
   let names = await storage.listDecks();
   if (!names.length) {
     await storage.writeText(deckPath('default'), serializeDeck(STARTER_DECK.map(normalizeCard)));
@@ -392,12 +523,15 @@ export async function adoptFolder() {
   emit('deck');
   emit('folder');
   emit('quota');
+  emit('bank');
+  emit('shadow');
 }
 
 export function releaseFolder() {
   const open = state.cards;
   state.persistent = false;
   state.manifest = [];
+  state.shadowSessions = [];
   state.deckNames = [state.deckName];
   /* Only the open deck is still in memory, so it is the only thing practice
      can honestly be said to draw from. */
@@ -405,6 +539,8 @@ export function releaseFolder() {
   adopt(state.deckName, open);
   emit('folder');
   emit('deck');
+  emit('bank');
+  emit('shadow');
 }
 
 /* Boot with whatever can be had without a store, so the page is usable the
@@ -417,6 +553,8 @@ export function bootLocal() {
   state.decks = {};
   adopt('default', STARTER_DECK.map(normalizeCard));
   state.deckNames = ['default'];
+  state.manifest = [];
+  state.shadowSessions = [];
   emit('settings');
   emit('deck');
   emit('quota');

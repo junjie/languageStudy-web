@@ -688,6 +688,82 @@ textarea { resize: vertical; font: 13px/1.6 var(--mono); }
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
+/* ── shadowing ────────────────────────────────────────────────── */
+
+/* A smaller play button than the dictation one: there are up to twenty of
+   them on a set, two to a line, and the full-size circle would be the only
+   thing on the screen. */
+.play--sm { width: 34px; height: 34px; font-size: 13px; }
+/* "Play your take" sits there from the moment a line is drawn, so it has to
+   look inert until there is a take to play. */
+.play:disabled { opacity: 0.3; cursor: not-allowed; }
+
+.sh-row {
+  border: 1px solid var(--line);
+  background: var(--bg-sunken);
+  padding: 10px 12px;
+}
+.sh-row + .sh-row { margin-top: 8px; }
+/* A line with a take on it reads as done at a glance, without a tick column
+   that would be empty for most of the set most of the time. */
+.sh-row.is-done { border-left: 2px solid var(--ok); }
+
+.sh-main { display: flex; gap: 12px; align-items: center; }
+.sh-text { flex: 1 1 200px; min-width: 0; }
+.sh-line {
+  font-size: 15px;
+  color: var(--fg-warm);
+  overflow-wrap: anywhere;
+}
+.sh-gloss { font-size: 12px; color: var(--fg-dim); margin-top: 3px; overflow-wrap: anywhere; }
+.sh-acts { display: flex; gap: 8px; align-items: center; flex: 0 0 auto; }
+.sh-acts .btn { min-width: 84px; }
+
+/* Recording is the one state on this page worth making impossible to miss —
+   a microphone you think is off is how a take gets lost. */
+.is-rec { animation: rec-pulse 1.1s ease-in-out infinite; }
+@keyframes rec-pulse { 50% { opacity: 0.55; } }
+
+.sh-comment {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--fg-muted);
+}
+
+.sh-meta { font: 11px/1.5 var(--mono); color: var(--fg-dim); }
+
+/* .notes-box keeps pre-wrap so a dictation sentence shows exactly as written.
+   These boxes hold ordinary prose in real elements, so the newlines between
+   those elements are markup, not content. */
+.sh-box { white-space: normal; }
+.sh-box p { font-size: 13px; line-height: 1.65; color: var(--fg-muted); }
+
+.sh-hist { display: flex; gap: 8px; align-items: stretch; }
+.sh-hist + .sh-hist { margin-top: 6px; }
+.sh-hist-open {
+  flex: 1 1 auto;
+  text-align: left;
+  border: 1px solid var(--line);
+  background: var(--bg-sunken);
+  color: inherit;
+  padding: 8px 10px;
+  cursor: pointer;
+  display: block;
+  min-width: 0;
+}
+.sh-hist-open:hover { border-color: var(--fg-dim); background: var(--surface-hi); }
+.sh-hist-id { font: 12.5px/1.5 var(--mono); color: var(--fg-warm); display: block; }
+.sh-hist-sub { font-size: 11.5px; color: var(--fg-dim); display: block; margin-top: 2px; }
+
+@media (max-width: 560px) {
+  .sh-main { flex-wrap: wrap; }
+  .sh-text { flex: 1 1 100%; order: -1; }
+  .sh-acts { margin-left: auto; }
+}
+
 /* ── empty / gate states ──────────────────────────────────────── */
 
 .gate {

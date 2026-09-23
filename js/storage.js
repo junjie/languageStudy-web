@@ -9,6 +9,9 @@
      audio/manifest.json  the dictation bank index
      audio/quota.json     the rolling API call budget
      audio/<id>.wav|.txt  generated speech and its transcript
+     shadowing/manifest.json   the shadowing session index
+     shadowing/<id>.json       one session: its lines and its feedback
+     shadowing/<id>_<n>.webm   your own voice, one file per line
 
    Two kinds of directory can hold that layout:
 
@@ -311,28 +314,39 @@ async function* handlesIn(dir) {
   }
 }
 
-export async function listDecks() {
-  const dir = await subdir('decks', false);
+/* Every file directly inside one of the data directories, by name. */
+export async function listIn(dirName) {
+  const dir = await subdir(dirName, false);
   if (!dir) return [];
   const names = [];
   for await (const entry of handlesIn(dir)) {
-    if (entry.kind === 'file' && entry.name.endsWith('.json')) names.push(entry.name.slice(0, -5));
+    if (entry.kind === 'file') names.push(entry.name);
   }
   return names.sort();
 }
 
+export async function listDecks() {
+  const names = await listIn('decks');
+  return names.filter((n) => n.endsWith('.json')).map((n) => n.slice(0, -5));
+}
+
 export function ensureSubdirs() {
-  return Promise.all([subdir('decks', true), subdir('audio', true)]);
+  return Promise.all(DATA_DIRS.map((name) => subdir(name, true)));
 }
 
 /* ── the data layout, as a set of paths ──────────────────────────────── */
 
-const DATA_DIRS = ['decks', 'audio'];
+const DATA_DIRS = ['decks', 'audio', 'shadowing'];
 
 /* Exactly the files this app owns. Everything else in a folder — a .git, a
    README, a .DS_Store, the ._name AppleDouble files macOS adds when it zips —
-   belongs to whoever put it there, and is neither backed up nor restored. */
-const DATA_FILE = /^(settings\.json|decks\/[^/.][^/]*\.json|audio\/[^/.][^/]*\.(json|wav|txt))$/;
+   belongs to whoever put it there, and is neither backed up nor restored.
+
+   The shadowing takes carry four possible extensions because MediaRecorder
+   hands back whatever its browser prefers: webm on Chrome, ogg on Firefox,
+   mp4 on Safari. The file is named from the recorder's own mimeType rather
+   than assumed, so a backup written on one browser opens on another. */
+const DATA_FILE = /^(settings\.json|decks\/[^/.][^/]*\.json|audio\/[^/.][^/]*\.(json|wav|txt)|shadowing\/[^/.][^/]*\.(json|webm|ogg|mp4|m4a|wav))$/;
 
 /* Maps a path from a zip or a picked folder onto the data layout, or null.
    Leading folders are dropped, because a backup that was unzipped and zipped

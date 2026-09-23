@@ -85,6 +85,9 @@ export function init() {
     if (current && !answered && !inBankScope(current)) fromBank();
   });
   store.subscribe('folder', () => { gate(); renderBankInfo(); });
+  /* Shadowing writes nothing to the bank, but a restore or a disconnect
+     replaces it wholesale, and the counts on screen must follow. */
+  store.subscribe('bank', renderBankInfo);
   store.subscribe('settings', renderQuota);
   ticker = setInterval(renderQuota, 1000);
   gate();
@@ -154,14 +157,9 @@ function pool() {
 }
 
 /* Banked sentences from decks that are no longer ticked stay on disk but out
-   of rotation. Sentences made before decks were tagged carry no deck at all;
-   those are placed by their target words instead, so an old bank keeps
-   working rather than vanishing. */
-function inBankScope(entry) {
-  if (entry.deck) return store.isPracticeDeck(entry.deck);
-  const known = new Set(store.practiceCards().map((c) => c.front));
-  return (entry.terms || []).some((t) => known.has(t));
-}
+   of rotation. The rule itself lives in the store, because the Shadowing tab
+   draws from the same bank and the two must agree about what is in scope. */
+const inBankScope = store.bankInScope;
 
 function renderBankInfo() {
   const slips = store.practiceCards().filter((c) => c.accent_slip && isDictatable(c)).length;
@@ -286,6 +284,11 @@ function fromBank() {
     heard.clear();
     candidates = scoped;
   }
+  /* A sentence you have shadowed is one you have already read in full, so it
+     is no longer a blind dictation. Those are kept for when nothing else is
+     left rather than dropped — they cost real API calls to make. */
+  const unread = candidates.filter((e) => !(e.times_shadowed > 0));
+  if (unread.length) candidates = unread;
   const entry = candidates[Math.floor(Math.random() * candidates.length)];
   heard.add(entry.id);
   loadCard(entry);
@@ -329,6 +332,7 @@ async function loadCard(entry) {
     entry.voice ? `voice ${escapeHtml(entry.voice)}` : '',
     entry.language ? escapeHtml(entry.language) : '',
     `played ${entry.times_practiced || 0}×`,
+    entry.times_shadowed ? `shadowed ${entry.times_shadowed}×` : '',
   ].filter(Boolean).map((s) => `<span>${s}</span>`).join('');
 
   $('dc-terms').innerHTML = count
@@ -470,10 +474,8 @@ function scoreTerms(usrWords) {
     : '';
 }
 
-async function markPractised() {
-  current.times_practiced = (current.times_practiced || 0) + 1;
-  current.last_practiced = new Date().toISOString().slice(0, 10);
-  await store.saveManifest();
+function markPractised() {
+  return store.markPractised(current);
 }
 
 /* ── small helpers ───────────────────────────────────────────────────── */

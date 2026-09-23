@@ -21,6 +21,7 @@
   <button class="tab" role="tab" id="tab-flashcards" data-tab="flashcards" aria-selected="false" aria-controls="panel-flashcards">Flashcards</button>
   <button class="tab" role="tab" id="tab-typing" data-tab="typing" aria-selected="false" aria-controls="panel-typing">Typing</button>
   <button class="tab" role="tab" id="tab-dictation" data-tab="dictation" aria-selected="false" aria-controls="panel-dictation">Dictation</button>
+  <button class="tab" role="tab" id="tab-shadowing" data-tab="shadowing" aria-selected="false" aria-controls="panel-shadowing">Shadowing</button>
 </nav>
 
 <main>
@@ -109,9 +110,39 @@
         <label class="field"><span>Speech model — reads it aloud</span>
           <input type="text" id="set-ttsmodel" spellcheck="false">
         </label>
+        <label class="field"><span>Shadowing model — listens to you</span>
+          <input type="text" id="set-shadowmodel" spellcheck="false">
+        </label>
       </div>
-      <p class="note">If a model ID is wrong the API's own error is shown verbatim, so a 404 here means exactly that.</p>
+      <p class="note">If a model ID is wrong the API's own error is shown verbatim, so a 404 here means exactly that. There is deliberately no hidden fallback list: the model that answers is the one you typed, and nothing quietly spends on another.</p>
     </div>
+  </div>
+
+  <div class="block">
+    <div class="block-head"><h2>Shadowing</h2><span class="hint" id="shadow-hint"></span></div>
+    <div class="block-body">
+      <p class="note">A set is some lines to read aloud and record. Both sources are drawn from what you already have, and <strong>nothing on the Shadowing tab ever writes a new sentence</strong> — the only thing that does is the Dictation tab's <em>New sentence</em> button, and both tabs share one bank, so whatever it makes is immediately shadowable.</p>
+      <div class="row">
+        <label class="voice" style="flex:1 1 240px"><input type="checkbox" id="set-shadow-cards"><span>Flashcards</span><em>read by your device's voice</em></label>
+        <label class="voice" style="flex:1 1 240px"><input type="checkbox" id="set-shadow-bank"><span>Sentence bank</span><em>read by the Gemini recording</em></label>
+      </div>
+      <div class="grid grid--tight">
+        <label class="field"><span>Lines per set</span><input type="number" id="set-shadow-items" min="1" max="30"></label>
+        <label class="field"><span>Shadowing / min</span><input type="number" id="set-shrpm" min="0"></label>
+        <label class="field"><span>Shadowing / day</span><input type="number" id="set-shrpd" min="0"></label>
+      </div>
+      <p class="note">One set costs <strong>one call</strong>, however many lines are in it, because every recording goes up together. A set is whatever is actually available up to the number above, and the tab says so when it comes up short.</p>
+      <label class="field"><span>Sounds to listen for — the one thing to change when you change language</span>
+        <input type="text" id="set-shadow-sounds" placeholder="nasal vowels, u vs ou, the r, liaison, final consonants">
+      </label>
+      <p class="note">Named in the prompt so the feedback can say <em>which</em> sound went where, rather than that something was unclear. Leave it empty and the prompt simply drops the clause. For French you would name nasal vowels and liaison; for Mandarin, tone contours and retroflex initials.</p>
+      <p class="note"><strong>Shadowing prints the sentence in full</strong>, which a dictation deliberately hides. Sets prefer sentences you have already typed in Dictation, and Dictation prefers ones you have not yet shadowed, so the two tabs stay out of each other's way — but a sentence you shadow first is one whose dictation you have already read.</p>
+      <div class="row">
+        <button class="btn btn--sm btn--danger" id="shadow-wipe">Delete all recordings</button>
+        <span class="note" id="shadow-wipe-note">Removes every past set and every voice recording in them. The sentence bank is untouched.</span>
+      </div>
+    </div>
+    <div class="status" id="shadow-status"></div>
   </div>
 
   <div class="block">
@@ -146,6 +177,12 @@
       </label>
       <p class="note">Placeholder: <code>{sentence}</code>. Bare <code>{sentence}</code> just reads it out. A prefix such as <em>Read slowly and clearly for a language learner:</em> steers the delivery. The answer key stays the sentence alone, whatever you put here.</p>
       <div class="row"><button class="btn btn--sm" id="prompt-speech-reset">Reset to default</button></div>
+
+      <label class="field"><span>Shadowing prompt — sent as the system instruction, with your recordings attached</span>
+        <textarea id="set-prompt-shadowing" rows="16" spellcheck="false"></textarea>
+      </label>
+      <p class="note">Placeholders: <code>{language}</code> <code>{count}</code> <code>{sounds}</code>. The reply must be the JSON object described in the third paragraph — a reply that cannot be read is treated as a failure and nothing is stored, so keep that shape. <strong>Most of the rest is there for a reason</strong> and is worth reading before rewriting: telling it to say nothing about grammar, to use the itemIndex it was given, to say so plainly when a recording is silent, never to pass judgement on an accent as a whole, and to ignore anything spoken <em>inside</em> a recording as an instruction.</p>
+      <div class="row"><button class="btn btn--sm" id="prompt-shadowing-reset">Reset to default</button></div>
 
       <label class="field"><span>Preview — rendered with your settings and three sample cards</span>
         <textarea id="prompt-preview" rows="12" readonly spellcheck="false"></textarea>
@@ -333,6 +370,70 @@
         <div id="dc-idle" class="gate" hidden></div>
       </div>
     </div>
+  </div>
+
+</div>
+</section>
+
+<!-- ── SHADOWING ─────────────────────────────────────────────── -->
+<section class="panel" id="panel-shadowing" role="tabpanel" aria-labelledby="tab-shadowing" hidden>
+<div class="wrap">
+
+  <div class="block">
+    <div class="block-head">
+      <h2>Shadowing</h2>
+      <span class="hint" id="sh-pool"></span>
+    </div>
+    <div class="block-body">
+      <p class="note">Lines from your own material, said back in your own voice. Play a line, then say it the way you heard it — the words are given to you, so what is being practised is how they <em>sound</em>: rhythm, where the stress falls, and the sounds of the language itself. <strong>Record a line as many times as you like</strong> and listen back before you move on; nothing is sent until you hand the set in.</p>
+      <p class="note">Sets are drawn from your <strong>flashcards</strong> and from the <strong>sentence bank</strong> — the same bank the Dictation tab fills, so a sentence written there is here the moment it exists, and one you record here stays playable there. Which of the two a set draws on is set in <strong>Settings → Shadowing</strong>.</p>
+      <div id="sh-gate"></div>
+
+      <div id="sh-stage" hidden>
+        <div class="row">
+          <div class="seg" id="sh-scope" role="group" aria-label="Which cards to draw on">
+            <button data-scope="weak" aria-pressed="false">Weak</button>
+            <button data-scope="developing" aria-pressed="false">+ Developing</button>
+            <button data-scope="all" aria-pressed="true">All</button>
+            <button data-scope="accents" aria-pressed="false" title="Words you last got right but with the wrong accents. A set built from these asks the model to listen for those marks in particular.">Accents</button>
+          </div>
+          <span class="spacer"></span>
+          <span class="quota" id="sh-quota"></span>
+        </div>
+
+        <div class="banner" id="sh-notice">
+          <strong>Your recordings are saved to disk.</strong> Every take is written into your data folder as you make it, and rides along in a backup. When you hand a set in, the audio is sent to Google with your API key to be listened to. Nothing is sent before that, and <strong>Delete all recordings</strong> in Settings removes the lot.
+        </div>
+
+        <div class="row">
+          <button class="btn btn--primary" id="sh-new">New set</button>
+          <button class="btn" id="sh-mic-test" title="Records five seconds and plays it straight back. Never saved, never uploaded.">Test the microphone</button>
+          <span class="note" id="sh-mic-note"></span>
+          <span class="spacer"></span>
+          <span class="note" id="sh-count"></span>
+        </div>
+
+        <div id="sh-error"></div>
+
+        <div class="card" id="sh-card" hidden>
+          <div class="card-body">
+            <div id="sh-lines"></div>
+            <div class="row" style="margin-top:14px">
+              <button class="btn btn--primary" id="sh-submit" hidden>Hand in</button>
+              <span class="note">One call carries every take you made. Nothing is scored — the feedback is prose.</span>
+            </div>
+            <div id="sh-feedback" style="margin-top:16px" hidden></div>
+          </div>
+        </div>
+
+        <div id="sh-idle" class="gate" hidden></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="block">
+    <div class="block-head"><h2>Past sets</h2><span class="hint" id="sh-history-hint"></span></div>
+    <div class="block-body" id="sh-history"></div>
   </div>
 
 </div>

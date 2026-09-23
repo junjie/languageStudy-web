@@ -1,10 +1,10 @@
 # Language Study
 
-Flashcards, typing practice and AI dictation for whatever language you are
-learning. One static page. No account, no server, no database — your cards and
-your audio stay on your own computer, in a folder you choose where the browser
-allows it, and the only thing that ever leaves the machine is a request to
-Google, signed with your own API key.
+Flashcards, typing practice, AI dictation and speaking practice for whatever
+language you are learning. One static page. No account, no server, no database
+— your cards, your audio and your own recordings stay on your own computer, in
+a folder you choose where the browser allows it, and the only thing that ever
+leaves the machine is a request to Google, signed with your own API key.
 
 **[Open the app →](https://nejra0031.github.io/languageStudy-web/)**
 *(live once GitHub Pages is enabled: Settings → Pages → deploy from `main`, root)*
@@ -25,7 +25,7 @@ exactly, and aligns words with them stripped, so a missed mark shows up as
 rule covers Vietnamese tones, Spanish acutes, Czech carons and German umlauts
 without knowing anything about any of them.
 
-## The four tabs
+## The five tabs
 
 **Settings** — where your data is saved, your API key, the language, the models, the call
 budget, the prompts, the read-aloud voice, and which Gemini voices may read to you.
@@ -57,13 +57,80 @@ can be downloaded as a `.wav`. A target word you heard but mis-accented is
 flagged the same way Typing flags one, and Dictation has its own **Accents**
 filter for building sentences around those words.
 
+**Shadowing** — ten lines to read aloud and record yourself saying. Play a
+line, say it back, listen to your own take, and record it again as many times
+as you like. Hand the set in and one API call carries every recording you made,
+each paired with the text it was meant to be, and comes back with a note on
+each line and one on the set as a whole. See below.
+
+## Shadowing
+
+The point of it is the **comparison**. Every line has something you can hear
+first — a banked sentence read by the Gemini voice, or a flashcard read by your
+device's own voice — so the feedback can be about the distance between the two:
+which word came out at the wrong speed, which vowel drifted, where the melody
+flattened. Generic feedback on free speech cannot do that, because there is
+nothing the speech was supposed to sound like.
+
+**Nothing is scored.** A number out of ten for how native you sounded is false
+precision, and reads as a verdict on you rather than on one sound. The feedback
+is prose or it is nothing, and the prompt forbids the model from passing
+judgement on your accent as a whole.
+
+**Re-recording is unlimited**, and there is no "keep this take?" step. Pressing
+Record again obviously replaces what is there, hearing yourself and going again
+*is* the exercise, and nothing is sent until you hand the set in.
+
+**A set is whatever you have.** Lines come from your flashcards and from the
+sentence bank — tick either or both in **Settings → Shadowing** — and if there
+are fewer than the number you asked for, you get fewer and the tab says so.
+You can hand in a set with only some lines recorded; the model is told how many
+of how many you did, so a line you skipped is never mistaken for one you
+muffed.
+
+### It shares the sentence bank with Dictation
+
+There is one bank, `audio/manifest.json`, and both tabs read and write it.
+Press **New sentence** on the Dictation tab and that sentence is shadowable
+immediately; nothing in the file records which tab made it, because nothing
+should. **Shadowing itself never writes a sentence** — the Dictation button is
+the only thing in the app that does.
+
+That sharing has one consequence worth knowing: a dictation deliberately hides
+its sentence, and shadowing prints it in full. So the two tabs stay out of each
+other's way — Shadowing offers sentences you have already typed before ones you
+haven't, and Dictation offers ones you haven't shadowed before ones you have —
+and both cards show `played N× · shadowed N×` so you can see which is which.
+Nothing is ever hidden from you outright: these sentences cost real API calls,
+and dropping one to protect a surprise would be the worse trade.
+
+### Your recordings
+
+They are written into `shadowing/` as you make them — before you hand anything
+in, so a set is never lost — and they ride along in the `.zip` backup. When you
+hand a set in, the audio goes to Google with your API key, and nowhere else.
+
+Each past set is kept with its feedback so you can play back what the feedback
+is about. **Delete** removes one set and its recordings; **Delete all
+recordings** in Settings removes the lot and leaves the sentence bank alone.
+
+### What it costs
+
+**One call per set**, however many lines are in it, because every recording
+goes up together. It has its own model and its own per-minute and per-day
+limits in Settings, separate from the dictation budget — a shadowing budget
+that has run down cannot stop you writing a sentence, and vice versa.
+
+Recording and listening back need no key at all. The key buys the feedback, not
+the practice.
+
 ## Choosing which decks are in play
 
 The deck menu on the Flashcards page lists every deck you have with a
 **tickbox** in front of it. The tickbox and the name do two different jobs:
 
-- **Tick a deck** and its words join practice. The Typing and Dictation tabs
-  draw from every ticked deck and ignore the rest.
+- **Tick a deck** and its words join practice. The Typing, Dictation and
+  Shadowing tabs draw from every ticked deck and ignore the rest.
 - **Click a deck's name** and it opens in the editor below.
 
 Those are deliberately separate, so you can edit one deck while drilling
@@ -173,12 +240,21 @@ The app keeps everything in one directory and creates what it needs:
 settings.json          models, limits, voices, language, prompts,
                        and which decks are ticked for practice
 decks/<name>.json      one file per deck
-audio/manifest.json    the dictation bank index
+audio/manifest.json    the sentence bank index — Dictation and Shadowing
+                       both read and write this one file
 audio/quota.json       the rolling API call budget
 audio/<id>.wav         generated speech
 audio/<id>.txt         its transcript, translation, target words,
                        deck and difficulty
+shadowing/manifest.json   the index of shadowing sets
+shadowing/<id>.json       one set: its lines and the feedback on them
+shadowing/<id>_<n>.webm   your own voice, one file per line
 ```
+
+The shadowing takes are named from the recorder's own container, so they are
+`.ogg` on Firefox and `.mp4` on Safari. The extension follows what was actually
+recorded rather than being assumed, so a backup written on one browser opens on
+another.
 
 There are two kinds of directory it can be, and **saving starts by itself** —
 there is nothing to set up before your first session is being kept:
@@ -228,12 +304,13 @@ Two different files, for two different jobs:
 | Format | one readable JSON file | a `.zip` |
 | Holds | every deck, all settings | the whole store, byte for byte |
 | Dictation audio | no | **yes** |
+| Your shadowing recordings | no | **yes** |
 | Editable by hand | yes | no |
 
 The bundle is how a *setup* travels — small enough to mail yourself, and you can
 open it in a text editor and lift one deck out of it. The backup is the safety
-net: it is the only copy that keeps the dictation bank, which cost real API
-calls to make. It is laid out exactly like the data folder, so you can unzip it
+net: it is the only copy that keeps the sentence bank, which cost real API
+calls to make, and the only one that keeps your shadowing recordings. It is laid out exactly like the data folder, so you can unzip it
 anywhere and point Chrome at it as a data folder, or bring it straight back with
 **Restore from a backup…**, which overwrites any file of the same name and
 leaves everything else alone.
@@ -312,14 +389,33 @@ key is worse than no card at all.
 
 ### Prompts
 
-Both prompts sent to the API are yours to edit, in **Settings → Prompts**, with
-a live preview of exactly what will be sent.
+All three prompts sent to the API are yours to edit, in **Settings → Prompts**,
+with a live preview of exactly what will be sent.
 
 The sentence prompt takes `{language}`, `{level}`, `{languageNote}`, `{terms}`,
 `{minWords}` and `{maxWords}`. Its reply is read back from the `TARGET:` and
 `EN:` lines, so keep those two labels; the rest is free. The speech prompt takes
 `{sentence}`, and a prefix such as *Read slowly and clearly for a language
 learner:* will steer the delivery.
+
+The shadowing prompt takes `{language}`, `{count}` and `{sounds}`, and is sent
+as the system instruction with your recordings attached after it. Its reply has
+to be the JSON object it describes — a reply that cannot be read is treated as
+a failure and nothing is stored, rather than half a grading being shown as a
+whole one — so keep that shape. Most of the rest of it is load-bearing in a way
+that is not obvious, and the comment above it in `js/defaults.js` says which
+line is there for which reason: telling the model to say nothing about grammar
+(the words were given to you, so they are not what is being practised), to key
+every note to the `itemIndex` it was given (or the notes attach to the wrong
+lines), to say so plainly when a recording is silent rather than inventing a
+critique, never to pass judgement on an accent as a whole, and to treat
+anything spoken *inside* a recording as speech rather than as an instruction to
+it.
+
+`{sounds}` is the **Sounds to listen for** setting, and it is the one thing to
+change when you change language: it names the sounds the feedback should listen
+for, so a comment can say *which* sound went where instead of that something
+was unclear. Leave it empty and the prompt drops the clause.
 
 ## Running it locally
 
@@ -345,6 +441,8 @@ css/app.css           one stylesheet
 js/text.js            comparison, diacritics, word diff
 js/deck.js            deck format, scoring, card selection
 js/speech.js          the device's own voices, for reading words aloud
+js/recorder.js        the microphone: MediaRecorder, and releasing it again
+js/shadowing.js       building a set, laying out the grading call, reading it back
 js/gemini.js          API calls, call budget, WAV wrapping
 js/bundle.js          the export/import file format
 js/zip.js             just enough zip to write and read a backup

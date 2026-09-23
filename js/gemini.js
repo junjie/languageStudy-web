@@ -13,6 +13,7 @@
 
 import { words, contains } from './text.js';
 import { VOICE_NAMES } from './defaults.js';
+import { buildGradingParts, readGrading, attachableClips } from './shadowing.js';
 
 const ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent';
 const MINUTE = 60;
@@ -220,14 +221,21 @@ export class RateLimiter {
     };
   }
 
+  /* canGenerate, retryAfter and cardsLeftToday are all about making one
+     dictation card, which takes a text call and a speech call. Shadowing is
+     reported alongside but deliberately left out of them: it spends neither of
+     those models, and a shadowing budget that had run down must not stop you
+     writing a sentence. */
   report(settings) {
     const l = settings.limits;
     const text = this.usage(settings.textModel, l.textRpm, l.textRpd);
     const tts = this.usage(settings.ttsModel, l.ttsRpm, l.ttsRpd);
+    const shadow = this.usage(settings.shadowModel, l.shadowRpm, l.shadowRpd);
     const lefts = [text.leftDay, tts.leftDay].filter((n) => n !== null);
     return {
       text,
       tts,
+      shadow,
       retryAfter: Math.max(text.retryAfter, tts.retryAfter),
       canGenerate: text.retryAfter <= 0 && tts.retryAfter <= 0,
       cardsLeftToday: lefts.length ? Math.min(...lefts) : null,
@@ -454,7 +462,87 @@ export function createClient({ getSettings, getApiKey, limiter }) {
     return { entry, wav, sidecar: sidecarText(entry) };
   }
 
-  return { call, testKey, generateCard, preflight };
+  /* ── shadowing ─────────────────────────────────────────────────────── */
+
+  /* Reasoning-capable Flash models think by default, and the thinking tokens
+     come out of the SAME budget as the visible answer — so the reasoning can
+     eat the whole maxOutputTokens and cut the JSON off mid-object, leaving
+     nothing parseable. thinkingConfig turns it off, but support and valid
+     range vary by model, and an alias can start pointing somewhere new with no
+     change on our side.
+
+     So: try with the field, and if the API rejects the request because of it,
+     retry once without and REMEMBER that for the rest of the page's life.
+     Without the memory every later call pays for two real requests and
+     silently doubles what the budget is spending. */
+  let thinkingRejected = false;
+
+  function looksLikeThinkingRejection(err) {
+    return err instanceof GeminiError
+      && /HTTP 400/.test(err.message)
+      && /thinking/i.test(err.message);
+  }
+
+  /* One call, carrying the reference text of every recorded line and the
+     learner's recording of it. Returns normalised feedback, or throws — a
+     reply that cannot be read is a failure, never a half grade, because a
+     half grade is indistinguishable from a finished one to whoever reads it. */
+  async function gradeShadowing({ items, clips, focus, itemCount }) {
+    const s = getSettings();
+    const attach = attachableClips(clips);
+    if (!attach.length) throw new GeminiError('There are no recordings to send.');
+
+    const system = fillTemplate(s.prompts.shadowing, {
+      language: s.targetLanguage,
+      count: itemCount,
+      /* The sounds clause hangs off the end of a sentence that reads properly
+         without it, so an empty setting is a legal state rather than a
+         dangling colon. */
+      sounds: s.shadowSounds && s.shadowSounds.trim()
+        ? ` ${s.targetLanguage} sounds worth listening for include ${s.shadowSounds.trim()}.`
+        : '',
+    });
+
+    const userParts = buildGradingParts({
+      items, clips: attach, focus, language: s.targetLanguage, itemCount,
+    });
+
+    const body = () => ({
+      system_instruction: { parts: [{ text: system }] },
+      contents: [{ parts: userParts }],
+      generationConfig: {
+        temperature: 0.3,
+        maxOutputTokens: 16384,
+        ...(thinkingRejected ? {} : { thinkingConfig: { thinkingBudget: 0 } }),
+      },
+    });
+
+    let data;
+    try {
+      data = await call(s.shadowModel, body(), s.limits.shadowRpm, s.limits.shadowRpd);
+    } catch (e) {
+      if (!looksLikeThinkingRejection(e) || thinkingRejected) throw e;
+      thinkingRejected = true;
+      data = await call(s.shadowModel, body(), s.limits.shadowRpm, s.limits.shadowRpd);
+    }
+
+    const graded = readGrading(firstText(data), itemCount);
+    if (!graded) {
+      throw new GeminiError(
+        `${s.shadowModel} replied with something that could not be read as feedback. `
+        + 'Nothing was saved — your recordings are still here, so you can ask again.');
+    }
+    return { ...graded, model: s.shadowModel, attached: attach.length };
+  }
+
+  /* Refuses before spending, the way preflight() does for a dictation card. */
+  function shadowPreflight() {
+    const s = getSettings();
+    const why = limiter.why(s.shadowModel, s.limits.shadowRpm, s.limits.shadowRpd);
+    if (why) throw new QuotaError(why, limiter.waitFor(s.shadowModel, s.limits.shadowRpm, s.limits.shadowRpd));
+  }
+
+  return { call, testKey, generateCard, preflight, gradeShadowing, shadowPreflight };
 }
 
 /* Duplicates what the manifest holds, so a stray .wav is never an orphan. */

@@ -3,7 +3,7 @@
 
 import * as storage from './storage.js';
 import * as store from './store.js';
-import { VOICES, DEFAULT_SENTENCE_PROMPT, DEFAULT_SPEECH_PROMPT } from './defaults.js';
+import { VOICES, DEFAULT_SENTENCE_PROMPT, DEFAULT_SPEECH_PROMPT, DEFAULT_SHADOW_PROMPT } from './defaults.js';
 import { fillTemplate, sentenceVars, formatWait, GeminiError, QuotaError } from './gemini.js';
 import { serializeDeck } from './deck.js';
 import { serializeBundle, parseBundle, describeBundle, bundleFilename } from './bundle.js';
@@ -35,6 +35,7 @@ export function init() {
   wirePrompts();
   wireVoices();
   wireSpeech();
+  wireShadowing();
 
   store.subscribe('settings', render);
   store.subscribe('folder', renderStore);
@@ -374,6 +375,9 @@ const FIELDS = [
   ['set-note', 'languageNote', 'text'],
   ['set-textmodel', 'textModel', 'text'],
   ['set-ttsmodel', 'ttsModel', 'text'],
+  ['set-shadowmodel', 'shadowModel', 'text'],
+  ['set-shadow-sounds', 'shadowSounds', 'text'],
+  ['set-shadow-items', 'shadowItems', 'int'],
   ['set-wmin', 'sentenceWords.min', 'int'],
   ['set-wmax', 'sentenceWords.max', 'int'],
   ['set-terms', 'termsPerSentence', 'int'],
@@ -381,6 +385,8 @@ const FIELDS = [
   ['set-trpd', 'limits.textRpd', 'int'],
   ['set-srpm', 'limits.ttsRpm', 'int'],
   ['set-srpd', 'limits.ttsRpd', 'int'],
+  ['set-shrpm', 'limits.shadowRpm', 'int'],
+  ['set-shrpd', 'limits.shadowRpd', 'int'],
 ];
 
 function wireFields() {
@@ -414,9 +420,12 @@ function render() {
   }
   const sp = $('set-prompt-sentence');
   const pp = $('set-prompt-speech');
+  const hp = $('set-prompt-shadowing');
   if (document.activeElement !== sp) sp.value = s.prompts.sentence;
   if (document.activeElement !== pp) pp.value = s.prompts.speech;
+  if (document.activeElement !== hp) hp.value = s.prompts.shadowing;
   renderVoices();
+  renderShadowing();
   renderPreview();
   updateBar();
 }
@@ -441,6 +450,15 @@ function wirePrompts() {
     store.saveSettings({ prompts: { ...store.state.settings.prompts, speech: DEFAULT_SPEECH_PROMPT } });
     renderPreview();
   });
+
+  const hp = $('set-prompt-shadowing');
+  hp.addEventListener('input', renderPreview);
+  hp.addEventListener('change', () => store.saveSettings({ prompts: { ...store.state.settings.prompts, shadowing: hp.value } }));
+  $('prompt-shadowing-reset').addEventListener('click', () => {
+    hp.value = DEFAULT_SHADOW_PROMPT;
+    store.saveSettings({ prompts: { ...store.state.settings.prompts, shadowing: DEFAULT_SHADOW_PROMPT } });
+    renderPreview();
+  });
 }
 
 function renderPreview() {
@@ -450,12 +468,26 @@ function renderPreview() {
   const sentence = fillTemplate(draft.prompts.sentence, sentenceVars(draft, sample));
   const spoken = fillTemplate(draft.prompts.speech, { sentence: '<the sentence it just wrote>' });
 
+  const shadowing = fillTemplate(draft.prompts.shadowing, {
+    language: draft.targetLanguage,
+    count: draft.shadowItems,
+    sounds: draft.shadowSounds && draft.shadowSounds.trim()
+      ? ` ${draft.targetLanguage} sounds worth listening for include ${draft.shadowSounds.trim()}.`
+      : '',
+  });
+
   const warnings = [];
   if (!draft.prompts.sentence.includes('{terms}')) {
     warnings.push('! The sentence prompt has no {terms} placeholder, so the model is never told which words to use.');
   }
   if (!draft.prompts.speech.includes('{sentence}')) {
     warnings.push('! The speech prompt has no {sentence} placeholder, so it will not read the sentence.');
+  }
+  /* The one part of the shadowing prompt that is not taste: a reply that
+     cannot be read is treated as a failure and nothing is stored, so a prompt
+     that stops asking for this shape would never produce any feedback. */
+  if (!draft.prompts.shadowing.includes('notes') || !draft.prompts.shadowing.includes('itemIndex')) {
+    warnings.push('! The shadowing prompt no longer asks for "notes" keyed by "itemIndex". A reply that cannot be read is treated as a failure, so no feedback would ever be stored.');
   }
 
   $('prompt-preview').value = [
@@ -465,6 +497,11 @@ function renderPreview() {
     '',
     `── to ${draft.ttsModel} ──`,
     spoken,
+    '',
+    `── to ${draft.shadowModel}, as the system instruction ──`,
+    shadowing,
+    '',
+    '(then one text part per line, each followed by your recording of it)',
   ].join('\n');
 }
 
@@ -478,6 +515,9 @@ function draftSettings() {
     languageNote: $('set-note').value,
     textModel: $('set-textmodel').value.trim() || s.textModel,
     ttsModel: $('set-ttsmodel').value.trim() || s.ttsModel,
+    shadowModel: $('set-shadowmodel').value.trim() || s.shadowModel,
+    shadowSounds: $('set-shadow-sounds').value,
+    shadowItems: Number($('set-shadow-items').value) || s.shadowItems,
     sentenceWords: {
       min: Number($('set-wmin').value) || s.sentenceWords.min,
       max: Number($('set-wmax').value) || s.sentenceWords.max,
@@ -485,6 +525,7 @@ function draftSettings() {
     prompts: {
       sentence: $('set-prompt-sentence').value,
       speech: $('set-prompt-speech').value,
+      shadowing: $('set-prompt-shadowing').value,
     },
   };
 }
@@ -561,6 +602,60 @@ function renderSpeech() {
 
 function escapeAttr(s) {
   return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+}
+
+/* ── shadowing ───────────────────────────────────────────────────────── */
+
+function wireShadowing() {
+  for (const [id, key] of [['set-shadow-cards', 'cards'], ['set-shadow-bank', 'bank']]) {
+    $(id).addEventListener('change', (e) => {
+      /* Both off is a legal state here, unlike the voices or the ticked decks:
+         "draw from nothing" has an honest answer — there is nothing to
+         practise — and the tab says exactly that rather than quietly drawing
+         from a source nobody asked for. */
+      store.saveSettings({
+        shadowSources: { ...store.state.settings.shadowSources, [key]: e.target.checked },
+      });
+    });
+  }
+
+  $('shadow-wipe').addEventListener('click', async () => {
+    const rows = store.state.shadowSessions || [];
+    if (!rows.length) {
+      setShadowStatus('There are no recordings to delete.', 'is-warn');
+      return;
+    }
+    const btn = $('shadow-wipe');
+    btn.disabled = true;
+    const n = await store.deleteAllSessions();
+    btn.disabled = false;
+    setShadowStatus(`Deleted ${plural(n, 'set')} and every recording in them. The sentence bank is untouched.`, 'is-ok');
+  });
+
+  store.subscribe('shadow', renderShadowing);
+}
+
+function renderShadowing() {
+  const s = store.state.settings;
+  const src = s.shadowSources || {};
+  $('set-shadow-cards').checked = !!src.cards;
+  $('set-shadow-bank').checked = !!src.bank;
+
+  const on = [src.cards && 'flashcards', src.bank && 'the sentence bank'].filter(Boolean);
+  $('shadow-hint').textContent = on.length ? on.join(' and ') : 'no source ticked';
+
+  const rows = store.state.shadowSessions || [];
+  const takes = rows.reduce((sum, r) => sum + (r.recorded || 0), 0);
+  $('shadow-wipe').disabled = !rows.length;
+  setShadowStatus(rows.length
+    ? `${plural(rows.length, 'set')} kept, ${plural(takes, 'recording')} in all.`
+    : 'No sets recorded yet.', rows.length ? 'is-ok' : '');
+}
+
+function setShadowStatus(text, cls) {
+  const el = $('shadow-status');
+  el.textContent = text;
+  el.className = 'status ' + (cls || '');
 }
 
 /* ── the dictation voices ────────────────────────────────────────────── */

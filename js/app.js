@@ -5,18 +5,26 @@ import * as settings from './tab-settings.js';
 import * as flashcards from './tab-flashcards.js';
 import * as typing from './tab-typing.js';
 import * as dictation from './tab-dictation.js';
+import * as shadowing from './tab-shadowing.js';
 
 const TABS = {
   settings: { module: settings },
   flashcards: { module: flashcards },
   typing: { module: typing },
   dictation: { module: dictation },
+  shadowing: { module: shadowing },
 };
 
 function show(name) {
-  for (const [key] of Object.entries(TABS)) {
-    document.getElementById('panel-' + key).hidden = key !== name;
-    document.getElementById('tab-' + key).setAttribute('aria-selected', String(key === name));
+  for (const [key, { module }] of Object.entries(TABS)) {
+    const leaving = key !== name;
+    const panel = document.getElementById('panel-' + key);
+    /* A tab being hidden gets told, because one of them holds a microphone
+       open and a stream left running keeps the browser's recording indicator
+       lit — something really would still be listening. */
+    if (leaving && !panel.hidden && module.onHide) module.onHide();
+    panel.hidden = leaving;
+    document.getElementById('tab-' + key).setAttribute('aria-selected', String(!leaving));
   }
   try { localStorage.setItem('lsw.tab', name); } catch (e) { /* ignore */ }
   const mod = TABS[name].module;
