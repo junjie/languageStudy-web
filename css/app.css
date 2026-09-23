@@ -474,6 +474,17 @@ textarea { resize: vertical; font: 13px/1.6 var(--mono); }
   font-size: 13px;
   color: var(--fg-muted);
 }
+.notes-box { white-space: pre-wrap; }
+.notes-edit {
+  width: 100%;
+  font: inherit;
+  font-size: 13px;
+  padding: 10px 12px;
+  background: var(--bg-sunken);
+  color: var(--fg);
+  border: 1px solid var(--accent);
+  resize: vertical;
+}
 
 .prev {
   border: 1px solid var(--line);

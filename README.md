@@ -42,7 +42,9 @@ recognised and converted on the way in.
 the wrong accents gets its own verdict, with the offending characters marked,
 because that is a different mistake from not knowing the word — and the card
 goes on the Accents list to drill later. **Show answer** gives up on a card (it
-counts as a miss); **Skip** moves on without counting anything.
+counts as a miss); **Skip** moves on without counting anything. Once a card is
+answered or revealed, **Edit notes** (or **Add notes**) writes straight into
+the card's `notes` in the deck.
 
 With **Read aloud** on, the word is spoken — straight away when it is the
 prompt, after you answer when it is the answer. **Hear it** replays it. The

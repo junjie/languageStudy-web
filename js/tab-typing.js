@@ -54,6 +54,22 @@ export function init() {
   speech.onVoicesChanged(renderSpeak);
   renderSpeak();
 
+  /* The card is re-rendered for every draw and its feedback for every answer,
+     so its buttons are handled here, once, rather than re-bound each time. */
+  $('ty-card').addEventListener('click', (e) => {
+    const hit = (sel) => e.target.closest(sel);
+    if (hit('[data-say]')) say(true);
+    else if (hit('#ty-accept')) acceptAnswer();
+    else if (hit('#ty-notes-edit')) renderNotes(true);
+    else if (hit('#ty-notes-save')) saveNotes();
+    else if (hit('#ty-notes-cancel')) renderNotes(false);
+  });
+  $('ty-card').addEventListener('keydown', (e) => {
+    if (e.target.id !== 'ty-notes-input') return;
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); saveNotes(); }
+    else if (e.key === 'Escape') { e.preventDefault(); renderNotes(false); }
+  });
+
   $('ty-dir').addEventListener('click', (e) => {
     const btn = e.target.closest('button[data-dir]');
     if (!btn) return;
@@ -137,7 +153,7 @@ function next() {
       <div class="card-body">
         <div class="prompt-label">${shownSide === 'front' ? escapeHtml(store.state.settings.targetLanguage) : 'Meaning'}</div>
         <div class="prompt" lang="${shownSide === 'front' ? code : 'en'}">${escapeHtml(shown)}</div>
-        <button class="btn btn--sm" id="ty-say" ${shownSide === 'front' ? '' : 'hidden'}>Hear it</button>
+        ${shownSide === 'front' ? '<button class="btn btn--sm" data-say>Hear it</button>' : ''}
         <label class="field" style="margin-top:24px">
           <span>Type ${escapeHtml(askFor)}</span>
           <input type="text" class="answer-input" id="ty-input" lang="${shownSide === 'front' ? 'en' : code}" autocomplete="off" autocapitalize="off" spellcheck="false">
@@ -156,7 +172,6 @@ function next() {
   $('ty-next').addEventListener('click', next);
   $('ty-skip').addEventListener('click', next);
   $('ty-reveal').addEventListener('click', reveal);
-  $('ty-say').addEventListener('click', () => say(true));
   const input = $('ty-input');
   input.addEventListener('keydown', (e) => {
     if (e.key !== 'Enter') return;
@@ -195,8 +210,7 @@ function renderSpeak() {
   btn.title = voice
     ? 'Reads the word aloud when it is shown, or once you have answered'
     : `No ${lang} voice is installed. On a Mac: System Settings → Accessibility → Spoken Content → System voice → Manage Voices.`;
-  const hear = document.getElementById('ty-say');
-  if (hear) hear.disabled = !voice;
+  for (const hear of document.querySelectorAll('#ty-card [data-say]')) hear.disabled = !voice;
 }
 
 function emptyState() {
@@ -250,8 +264,6 @@ function check() {
 
   $('ty-feedback').innerHTML = feedback(verdict, typed, expected, move);
   last = { typed, expected, before: move.before };
-  const accept = $('ty-accept');
-  if (accept) accept.addEventListener('click', acceptAnswer);
   justAnswered = { shown: current[shownSide], expected, typed, verdict, notes: current.notes };
   store.cardAnswered();
 }
@@ -285,9 +297,7 @@ function settle(ok) {
   const nextBtn = $('ty-next');
   nextBtn.hidden = false;
   nextBtn.focus();
-  /* The word is on screen now in either direction, so offer it — and read it
-     if it was the answer, since it has not been heard yet. */
-  $('ty-say').hidden = false;
+  /* Read the word if it was the answer, since it has not been heard yet. */
   if (shownSide === 'back') say();
 }
 
@@ -351,9 +361,57 @@ function feedback(verdict, typed, expected, move) {
       <div class="typed-back" style="margin-top:6px">you typed <s>${escapeHtml(typed)}</s></div>${alts}${acceptBtn}`;
   }
 
-  const notes = current.notes
-    ? `<div class="notes-box" style="margin-top:12px">${escapeHtml(current.notes)}</div>` : '';
-  return head + notes;
+  /* When the word was the answer, it has only just appeared — in the verdict
+     above — so that is where its Hear it goes, not by the English prompt. */
+  const hear = shownSide === 'back'
+    ? `<div class="row" style="margin-top:8px"><button class="btn btn--sm" data-say>Hear it</button></div>` : '';
+  return head + hear + `<div id="ty-notes-area" style="margin-top:12px">${notesHtml(false)}</div>`;
+}
+
+/* ── notes ───────────────────────────────────────────────────────────── */
+
+/* Notes can be written once the card has been answered or revealed — before
+   that they would give the answer away. They are saved straight into the
+   deck, exactly as if typed into the Flashcards tab. */
+function notesHtml(editing) {
+  if (editing) {
+    return `<textarea id="ty-notes-input" class="notes-edit" rows="3" spellcheck="false"
+      aria-label="Notes for this card">${escapeHtml(current.notes || '')}</textarea>
+      <div class="row" style="margin-top:8px">
+        <button class="btn btn--sm btn--primary" id="ty-notes-save">Save notes</button>
+        <button class="btn btn--sm" id="ty-notes-cancel">Cancel</button>
+        <span class="note">⌘ + Enter to save · Esc to cancel</span>
+      </div>`;
+  }
+  const box = current.notes
+    ? `<div class="notes-box">${escapeHtml(current.notes)}</div>` : '';
+  return `${box}<div class="row" style="margin-top:8px">
+    <button class="btn btn--sm" id="ty-notes-edit">${current.notes ? 'Edit notes' : 'Add notes'}</button></div>`;
+}
+
+function renderNotes(editing) {
+  const area = $('ty-notes-area');
+  if (!area) return;
+  area.innerHTML = notesHtml(editing);
+  if (editing) {
+    const box = $('ty-notes-input');
+    box.focus();
+    box.selectionStart = box.selectionEnd = box.value.length;
+  } else {
+    $('ty-next').focus();
+  }
+}
+
+async function saveNotes() {
+  const box = $('ty-notes-input');
+  if (!box || !current) return;
+  const text = box.value.trim();
+  if (text) current.notes = text;
+  else delete current.notes;
+  /* The Last card panel keeps its own copy; keep it in step. */
+  if (justAnswered) justAnswered.notes = current.notes;
+  renderNotes(false);
+  await store.saveDeck();
 }
 
 function markAccents(typed, expected) {
