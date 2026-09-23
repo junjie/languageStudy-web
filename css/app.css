@@ -678,6 +678,7 @@ textarea { resize: vertical; font: 13px/1.6 var(--mono); }
   color: var(--fg-muted);
 }
 .notes-box { white-space: pre-wrap; }
+.card-edit { display: grid; gap: 10px; }
 .notes-edit {
   width: 100%;
   font: inherit;
