@@ -18,9 +18,10 @@
 import * as store from './store.js';
 import * as storage from './storage.js';
 import { isDictatable, inScope, pickWeighted, pickGroup, recordResult, SCORE_LABEL } from './deck.js';
-import { words, contains, diff, escapeHtml, scoreMark } from './text.js';
-import { sidecarText, formatWait, QuotaError } from './gemini.js';
+import { words, contains, containsLoosely, diff, escapeHtml, scoreMark } from './text.js';
+import { formatWait, QuotaError } from './gemini.js';
 import { describe } from './tab-settings.js';
+import { languageCode } from './speech.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -57,6 +58,7 @@ export function init() {
   $('dc-bank-btn').addEventListener('click', fromBank);
   $('dc-check').addEventListener('click', check);
   $('dc-next').addEventListener('click', advance);
+  $('dc-download').addEventListener('click', downloadAudio);
 
   $('dc-input').addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); check(); }
@@ -162,6 +164,8 @@ function inBankScope(entry) {
 }
 
 function renderBankInfo() {
+  const slips = store.practiceCards().filter((c) => c.accent_slip && isDictatable(c)).length;
+  $('dc-scope').querySelector('[data-scope="accents"]').textContent = slips ? `Accents (${slips})` : 'Accents';
   const dictatable = store.practiceCards().filter(isDictatable).length;
   const banked = store.state.manifest.filter(inBankScope).length;
   const decks = store.practiceDecks();
@@ -199,6 +203,10 @@ function renderQuota() {
 async function generate() {
   if (busy) return;
   const gs = groups();
+  if (!gs.length && scope === 'accents') {
+    showError('No accent slips to build a sentence around. A word lands in Accents when you type the right word with the wrong accents, and leaves once you type it exactly.');
+    return;
+  }
   if (!gs.length) {
     showError(store.practiceCards().length
       ? 'No cards in this scope can be used for dictation. Widen the filter, tick another deck in the Flashcards tab, or check the cards themselves — entries like "X vs Y" or "verb + noun" have no single phrase to listen for, so they are skipped.'
@@ -251,6 +259,22 @@ function fromBank() {
   if (!bank.length) { idle('The bank is empty. Write the first sentence above.'); return; }
 
   const scoped = bank.filter(inBankScope);
+  /* Any banked sentence will do for the wider filters, but Accents means
+     these words — better to say none are banked than to play something else. */
+  if (scope === 'accents') {
+    const wanted = new Set(pool().map((c) => c.front));
+    const drills = scoped.filter((e) => (e.terms || []).some((t) => wanted.has(t)));
+    if (!drills.length) {
+      idle(wanted.size
+        ? 'No banked sentence uses your accent-slip words yet. Write a new one to drill them.'
+        : 'No accent slips in the ticked decks right now — nothing to drill.');
+      return;
+    }
+    const pick = drills[Math.floor(Math.random() * drills.length)];
+    heard.add(pick.id);
+    loadCard(pick);
+    return;
+  }
   if (!scoped.length) {
     idle('Nothing in the bank belongs to the decks you have ticked. Tick the deck those sentences were made from in the Flashcards tab, or write a new sentence above.');
     return;
@@ -282,6 +306,9 @@ async function loadCard(entry) {
   $('dc-idle').hidden = true;
   $('dc-card').hidden = false;
 
+  /* Stop the last sentence before its URL goes, or a load still in flight
+     fails against a revoked blob. */
+  if (audio) { audio.pause(); audio.removeAttribute('src'); audio.load(); }
   if (audioUrl) { URL.revokeObjectURL(audioUrl); audioUrl = null; }
   /* With no server there is no URL to point at — the wav has to be pulled out
      of the folder and turned into a blob URL each time. */
@@ -290,6 +317,7 @@ async function loadCard(entry) {
   audio = src ? new Audio(src) : null;
   if (audio) audio.playbackRate = rate;
   $('dc-play').disabled = !audio;
+  $('dc-download').disabled = !audio;
 
   const count = (entry.terms || []).length;
   const wordCount = words(entry.sentence).length;
@@ -309,6 +337,7 @@ async function loadCard(entry) {
     : '<span class="chip-count">no target words on this card</span>';
 
   const input = $('dc-input');
+  input.lang = languageCode(entry.language || store.state.settings.targetLanguage);
   input.value = '';
   input.disabled = false;
   $('dc-check').hidden = false;
@@ -319,6 +348,18 @@ async function loadCard(entry) {
 
   if (!audio) showError('The audio file for this sentence is missing from the sentence bank.');
   else play();
+}
+
+/* The sentence's audio as a file, named by its bank id. The transcript is not
+   bundled with it: that is the answer, and it is on screen once you have
+   checked. */
+async function downloadAudio() {
+  if (!current) return;
+  const blob = current.blobUrl
+    ? await fetch(current.blobUrl).then((r) => r.blob()).catch(() => null)
+    : await storage.readBlob(current.file);
+  if (!blob) { showError('The audio for this sentence could not be read.'); return; }
+  storage.download(`${current.id}.wav`, blob);
 }
 
 function play() {
@@ -410,12 +451,15 @@ function scoreTerms(usrWords) {
     }
 
     const ok = contains(usrWords, card.front);
+    /* Heard but mis-accented is the same near miss the Typing tab flags, and
+       it belongs on the same list. */
+    const accentSlip = !ok && containsLoosely(usrWords, card.front);
     chips.push(`<span class="chip ${ok ? 'chip--ok' : 'chip--bad'}">${escapeHtml(card.front)}</span>`);
-    const move = recordResult(card, ok);
+    const move = recordResult(card, ok, { accentSlip });
     changed.push(card);
     const moved = move.before !== move.after
       ? ` ${scoreMark(move.before)} → ${scoreMark(move.after, SCORE_LABEL[move.after].toLowerCase())}` : '';
-    rows.push(`<div>${ok ? '✓' : '✗'} ${escapeHtml(card.front)} (${move.correct}/${move.encounters})${moved}</div>`);
+    rows.push(`<div>${ok ? '✓' : '✗'} ${escapeHtml(card.front)}${accentSlip ? ' — right word, wrong accents' : ''} (${move.correct}/${move.encounters})${moved}</div>`);
   }
 
   $('dc-terms').innerHTML = chips.join('');

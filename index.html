@@ -32,7 +32,8 @@
   <div class="block">
     <div class="block-head"><h2>Where your data lives</h2><span class="hint" id="store-hint"></span></div>
     <div class="block-body">
-      <p class="note">Your decks, your settings and the audio the dictation tab generates all stay on this device. Nothing is uploaded and there is no account. <strong>Chrome and Edge</strong> let you pick a folder, which is the better home: you can see the files, back them up by copying them, and put the folder inside Drive or Dropbox to get sync for free. <strong>Firefox and Safari</strong> have no folder picker, so the same files go into private browser storage instead — saved across reloads, but only for as long as this page's site data lasts.</p>
+      <p class="note">Your decks, your settings and the audio the dictation tab generates all stay on this device. Nothing is uploaded and there is no account. <strong>Saving starts immediately, in this browser's own storage</strong> — you need not set anything up. It is kept across reloads, but only for as long as this page's site data lasts.</p>
+      <p class="note"><strong>Chrome and Edge</strong> can do better: pick a folder and the same files sit on disk where you can see them, copy them, and put them inside Drive or Dropbox for sync. Choosing a folder moves everything already saved into it; disconnecting moves it back. <strong>Firefox and Safari</strong> have no folder picker, so browser storage is the whole story there.</p>
       <div class="row">
         <button class="btn btn--primary" id="store-choose">Choose folder</button>
         <button class="btn" id="store-disconnect" hidden>Disconnect</button>
@@ -43,6 +44,12 @@
         <button class="btn" id="store-import">Import a bundle…</button>
         <input type="file" id="store-import-file" accept="application/json,.json" hidden>
         <button class="btn btn--sm" id="store-export" hidden>Download current deck</button>
+      </div>
+      <p class="note"><strong>A backup is the whole store, audio and all:</strong> a zip laid out exactly like the data folder. It is the one copy that keeps the dictation bank, which cost real API calls to make. Unzip it anywhere and Chrome can open it as a data folder; or bring it straight back with Restore, which overwrites any file of the same name.</p>
+      <div class="row">
+        <button class="btn" id="backup-download">Download backup (.zip)</button>
+        <button class="btn" id="backup-restore">Restore from a backup…</button>
+        <input type="file" id="backup-restore-file" accept=".zip,application/zip" hidden>
       </div>
       <div class="banner" id="import-preview" hidden>
         <p class="note" id="import-note"></p>
@@ -147,7 +154,21 @@
   </div>
 
   <div class="block">
-    <div class="block-head"><h2>Voices</h2><span class="hint" id="voice-hint"></span></div>
+    <div class="block-head"><h2>Read-aloud voice</h2><span class="hint">Typing · built into this device</span></div>
+    <div class="block-body">
+      <p class="note">The voice that reads words aloud in Typing practice. These come with your operating system, cost nothing and work offline — they are nothing to do with Gemini or your API key. Only voices for your target language are listed; to add more on a Mac, go to System Settings → Accessibility → Spoken Content → System voice → Manage Voices, then reload this page.</p>
+      <div class="row">
+        <label class="field" style="flex:1 1 260px"><span>Voice</span>
+          <select id="set-speech-voice"></select>
+        </label>
+        <button class="btn" id="speech-sample" style="align-self:flex-end">Play sample</button>
+      </div>
+    </div>
+    <div class="status" id="speech-status"></div>
+  </div>
+
+  <div class="block">
+    <div class="block-head"><h2>Dictation voices</h2><span class="hint" id="voice-hint"></span></div>
     <div class="block-body">
       <p class="note">One is drawn at random for each new sentence, so listening practice is not always the same speaker. Untick the ones you would rather not hear. You cannot untick them all, since something has to read the sentence.</p>
       <div class="row">
@@ -184,7 +205,8 @@
           <button class="btn btn--sm" id="deck-new">New</button>
           <button class="btn btn--sm" id="deck-rename">Rename</button>
           <button class="btn btn--sm btn--danger" id="deck-delete">Delete</button>
-          <button class="btn btn--sm" id="deck-import">Import watchlist…</button>
+          <button class="btn btn--sm" id="deck-import" title="Adds each chosen .json file as a new deck named after the file. Existing decks are never overwritten. Takes a deck file or a CLI watchlist.">Import as new deck…</button>
+          <input type="file" id="deck-import-file" accept=".json,application/json" multiple hidden>
         </div>
       </div>
       <p class="note">Open the deck menu and you get every deck you have, each with a <strong>tickbox</strong> in front of it. <strong>Ticking a deck puts its words into practice:</strong> the Typing and Dictation tabs draw from every ticked deck at once, and ignore the rest. Click a deck's <em>name</em> instead of its tickbox to open it in the editor below — opening a deck and practising it are separate things, so you can edit one deck while drilling another. At least one deck is always ticked; the last tick cannot be removed, because a practice tab with nothing to draw from has nothing to do.</p>
@@ -219,8 +241,12 @@
           <button data-scope="weak" aria-pressed="false">Weak</button>
           <button data-scope="developing" aria-pressed="false">+ Developing</button>
           <button data-scope="all" aria-pressed="true">All</button>
+          <button data-scope="accents" aria-pressed="false" title="Words you last got right but with the wrong accents. A word leaves this list once you type it exactly.">Accents</button>
         </div>
         <span class="spacer"></span>
+        <div class="seg" role="group" aria-label="Speech">
+          <button id="ty-speak" class="icon-btn" aria-pressed="true" aria-label="Read aloud" title="Read aloud"></button>
+        </div>
         <div class="seg" id="ty-dir" role="group" aria-label="Which side to show">
           <button data-dir="front-to-back" aria-pressed="false">Front → back</button>
           <button data-dir="back-to-front" aria-pressed="false">Back → front</button>
@@ -261,6 +287,7 @@
             <button data-scope="weak" aria-pressed="false">Weak</button>
             <button data-scope="developing" aria-pressed="false">+ Developing</button>
             <button data-scope="all" aria-pressed="true">All</button>
+            <button data-scope="accents" aria-pressed="false" title="Sentences built around words you last got right but with the wrong accents.">Accents</button>
           </div>
           <span class="spacer"></span>
           <span class="quota" id="dc-quota"></span>
@@ -296,6 +323,8 @@
               <button class="btn btn--primary" id="dc-check">Check</button>
               <button class="btn btn--primary" id="dc-next" hidden>Next</button>
               <span class="note">Ctrl + Enter to check · Space to replay</span>
+              <span class="spacer"></span>
+              <button class="btn btn--sm" id="dc-download">Download audio</button>
             </div>
             <div id="dc-result" hidden style="margin-top:18px"></div>
           </div>

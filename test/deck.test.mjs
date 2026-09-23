@@ -2,7 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   recordResult, stats, isDictatable, normalizeCard, parseDeck, serializeDeck,
-  importWatchlist, pickWeighted, pickGroup, cardWeight, inScope, slugify, WINDOW,
+  importWatchlist, parseDeckFile, amendLastToRight, addAlternative, meanings,
+  pickWeighted, pickGroup, cardWeight, inScope, slugify, WINDOW,
 } from '../js/deck.js';
 
 const card = (recent = []) => ({ front: 'x', back: 'y', score: 1, recent: recent.slice() });
@@ -213,4 +214,88 @@ test('an empty group cannot be drawn when a non-empty one exists', () => {
   const empty = { name: 'empty', cards: [] };
   const full = { name: 'full', cards: [card()] };
   for (let i = 0; i < 50; i++) assert.equal(pickGroup([empty, full]).name, 'full');
+});
+
+test('an opened file is read as a deck, else as a watchlist', () => {
+  const deck = parseDeckFile('[{"front":"hola","back":"hello"}]');
+  assert.equal(deck.format, 'deck');
+  assert.equal(deck.cards[0].front, 'hola');
+  const wl = parseDeckFile('{"items":[{"term":"cải tiến","english":"to improve"}]}');
+  assert.equal(wl.format, 'watchlist');
+  assert.equal(wl.cards[0].back, 'to improve');
+  assert.match(parseDeckFile('{"nope":1}').error, /JSON array/);
+  assert.match(parseDeckFile('[{"front":').error, /./);
+});
+
+test('an accent slip flags the card until it is typed exactly', () => {
+  const c = card();
+  recordResult(c, false, { accentSlip: true });
+  assert.equal(c.accent_slip, true);
+  assert.deepEqual(c.recent, [false], 'still scored as wrong');
+  assert.ok(inScope(c, 'accents'));
+
+  recordResult(c, false);
+  assert.equal(c.accent_slip, true, 'a plain miss leaves the flag alone');
+
+  recordResult(c, true, { typedFront: false });
+  assert.equal(c.accent_slip, true, 'getting the meaning right does not clear it');
+
+  recordResult(c, true);
+  assert.equal(c.accent_slip, undefined, 'an exact answer clears it');
+  assert.ok(!inScope(c, 'accents'));
+});
+
+test('the Accents scope selects on the flag alone, whatever the score', () => {
+  const strong = { ...card(), score: 5, accent_slip: true };
+  const weak = { ...card(), score: 1 };
+  assert.ok(inScope(strong, 'accents'));
+  assert.ok(!inScope(weak, 'accents'));
+  assert.ok(inScope(weak, 'weak'), 'the other scopes are untouched');
+  assert.ok(inScope(strong, 'all'));
+});
+
+test('accent_slip round-trips through a save, and only when set', () => {
+  const [flagged, clean] = parseDeck(serializeDeck([
+    { ...card(), front: 'a', accent_slip: true },
+    { ...card(), front: 'b' },
+  ])).cards;
+  assert.equal(flagged.accent_slip, true);
+  assert.ok(!('accent_slip' in clean));
+  assert.ok(!serializeDeck([clean]).includes('accent_slip'));
+});
+
+test('accepting a meaning turns the last answer right, through the same rules', () => {
+  const c = card([true, true, true, true, true, true, false]);
+  recordResult(c, false);
+  assert.equal(c.score, 4, '6/8 = 75%');
+  const move = amendLastToRight(c);
+  assert.deepEqual(c.recent, [true, true, true, true, true, true, false, true],
+    'the miss is replaced, not added to');
+  assert.equal(move.after, 5, '7/8 = 87.5%');
+  assert.equal(c.score, 5);
+});
+
+test('accepting a meaning does not clear an accent flag', () => {
+  const c = { ...card(), accent_slip: true };
+  recordResult(c, false);
+  amendLastToRight(c);
+  assert.equal(c.accent_slip, true, 'the accents were never the thing being judged');
+});
+
+test('alternatives are added once, kept through a save, and count as meanings', () => {
+  const same = (a, b) => a.toLowerCase().replace(/[!,]/g, '') === b.toLowerCase().replace(/[!,]/g, '');
+  const c = { ...card(), front: 'khỏi thối', back: 'Keep the change!' };
+  assert.equal(addAlternative(c, 'keep the change', same), false, 'already the back');
+  assert.equal(addAlternative(c, 'Auntie, keep the change', same), true);
+  assert.equal(addAlternative(c, 'auntie keep the change', same), false, 'already an alternative');
+  assert.equal(addAlternative(c, '   ', same), false, 'nothing to add');
+  assert.deepEqual(meanings(c), ['Keep the change!', 'Auntie, keep the change']);
+
+  const text = serializeDeck([c]);
+  const [back] = parseDeck(text).cards;
+  assert.deepEqual(back.alternatives, ['Auntie, keep the change']);
+  assert.ok(text.indexOf('"alternatives"') < text.indexOf('"score"'),
+    'sits with the meaning, above the history');
+  assert.ok(!serializeDeck([card()]).includes('alternatives'), 'absent when empty');
+  assert.ok(!('alternatives' in normalizeCard({ front: 'a', back: 'b', alternatives: ['', '  '] })));
 });

@@ -300,6 +300,9 @@ textarea { resize: vertical; font: 13px/1.6 var(--mono); }
   border-left: 1px solid var(--line-strong);
   padding: 6px 12px;
   font-size: 11.5px;
+  /* A fixed line box, so a segment holding an icon is exactly as tall as one
+     holding text, whatever font metrics the browser uses. */
+  line-height: 16px;
   font-weight: 600;
   color: var(--fg-dim);
   cursor: pointer;
@@ -465,6 +468,7 @@ textarea { resize: vertical; font: 13px/1.6 var(--mono); }
   font: 11px/1.4 var(--mono);
   color: var(--fg-dim);
 }
+.card-meta .is-warn { color: var(--warn); }
 .card-body { padding: 26px 20px; }
 
 .prompt-label {
@@ -481,6 +485,17 @@ textarea { resize: vertical; font: 13px/1.6 var(--mono); }
   font-weight: 600;
   color: var(--fg-warm);
   overflow-wrap: anywhere;
+}
+.icon-btn { display: inline-flex; align-items: center; justify-content: center; }
+.icon-btn svg { display: block; width: 16px; height: 16px; }
+/* A hidden word. Always the same size, whatever is under it, so neither its
+   length nor how many words it has can be read off the bar. */
+.redacted {
+  width: min(320px, 100%);
+  height: 35px;
+  background: repeating-linear-gradient(135deg,
+    var(--fg-dim) 0 6px, var(--surface-hi) 6px 12px);
+  opacity: 0.55;
 }
 .prompt-sub { margin-top: 8px; font-size: 13px; color: var(--fg-muted); }
 
@@ -535,6 +550,17 @@ textarea { resize: vertical; font: 13px/1.6 var(--mono); }
   font-size: 13px;
   color: var(--fg-muted);
 }
+.notes-box { white-space: pre-wrap; }
+.notes-edit {
+  width: 100%;
+  font: inherit;
+  font-size: 13px;
+  padding: 10px 12px;
+  background: var(--bg-sunken);
+  color: var(--fg);
+  border: 1px solid var(--accent);
+  resize: vertical;
+}
 
 .prev {
   border: 1px solid var(--line);
@@ -562,6 +588,7 @@ textarea { resize: vertical; font: 13px/1.6 var(--mono); }
 }
 .prev.is-ok h3::before { background: var(--ok); }
 .prev.is-bad h3::before { background: var(--bad); }
+.prev.is-warn h3::before { background: var(--warn); }
 
 .tally {
   display: flex;

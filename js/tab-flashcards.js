@@ -12,7 +12,7 @@
 
 import * as store from './store.js';
 import * as storage from './storage.js';
-import { parseDeck, serializeDeck, importWatchlist, stats, SCORE_LABEL } from './deck.js';
+import { parseDeck, serializeDeck, parseDeckFile, stats, SCORE_LABEL } from './deck.js';
 import { escapeHtml } from './text.js';
 
 const $ = (id) => document.getElementById(id);
@@ -70,7 +70,8 @@ export function init() {
     load();
   });
 
-  $('deck-import').addEventListener('click', doImport);
+  $('deck-import').addEventListener('click', () => $('deck-import-file').click());
+  $('deck-import-file').addEventListener('change', doImport);
 
   store.subscribe('deck', () => { renderDeckList(); if (!dirty) load(); });
   renderDeckList();
@@ -235,21 +236,57 @@ function confirmDiscard() {
   return Promise.resolve(confirm('This deck has unsaved changes. Discard them?'));
 }
 
-/* Bring a watchlist.json from the CLI study system across. Pure text in,
-   cards out — nothing is read off the disk. */
-async function doImport() {
-  const text = prompt('Paste the contents of watchlist.json:');
-  if (!text) return;
-  const result = importWatchlist(text);
+/* Open one or more .json files, each as a new deck named after its file.
+   Existing decks are never touched: a name already in use gets a free one, the
+   same rule a bundle import follows.
+
+   Both formats this app understands are accepted — a deck file, or a
+   watchlist.json from the CLI study system — because from the outside they are
+   both just "a file of words I have", and making the user say which is a
+   question the parser can answer itself. */
+async function doImport(e) {
+  const files = [...(e.target.files || [])];
+  /* Cleared so that picking the same file again still counts as a change. */
+  e.target.value = '';
+  if (!files.length) return;
   const el = $('deck-status');
-  if (result.error) {
-    el.textContent = 'Import failed: ' + result.error;
-    el.className = 'status is-bad';
+
+  if (!store.state.persistent) {
+    el.textContent = 'Nothing is being saved, so there is nowhere to put a new deck. See the Settings tab.';
+    el.className = 'status is-warn';
     return;
   }
-  if (store.state.persistent) await store.createDeck('imported', result.cards);
-  else store.setCards(result.cards);
+  if (!(await confirmDiscard())) return;
+
+  const added = [];
+  const failed = [];
+  for (const file of files) {
+    let text = '';
+    try {
+      text = await file.text();
+    } catch (err) {
+      failed.push(`${file.name} (${err.message})`);
+      continue;
+    }
+    const result = parseDeckFile(text);
+    if (result.error) {
+      failed.push(`${file.name} — ${result.error}`);
+      continue;
+    }
+    const name = await store.createDeck(file.name.replace(/\.json$/i, ''), result.cards);
+    added.push({ name, cards: result.cards.length, format: result.format });
+  }
+
   load();
-  el.textContent = `Imported ${result.cards.length} cards.`;
-  el.className = 'status is-ok';
+  const bits = added.map((a) => `${a.name} (${a.cards} card${a.cards === 1 ? '' : 's'}${a.format === 'watchlist' ? ', from a watchlist' : ''})`);
+  if (added.length && !failed.length) {
+    el.textContent = `Imported ${bits.join(', ')}. Each is ticked for practice.`;
+    el.className = 'status is-ok';
+  } else if (added.length) {
+    el.textContent = `Imported ${bits.join(', ')}. Skipped: ${failed.join('; ')}`;
+    el.className = 'status is-warn';
+  } else {
+    el.textContent = `Nothing imported. ${failed.join('; ')}`;
+    el.className = 'status is-bad';
+  }
 }

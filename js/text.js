@@ -40,6 +40,14 @@ export function base(w) {
     .replace(/đ/g, 'd');
 }
 
+/* True when the term appears once accents are ignored — the word was heard,
+   whether or not its marks were. Built on contains(), so it agrees with it on
+   everything except the accents. */
+export function containsLoosely(haystack, term) {
+  const t = String(term || '').replace(/\([^)]*\)/g, ' ');
+  return contains(haystack.map(base), words(t).map(base).join(' '));
+}
+
 /* True when the term's whole word sequence appears verbatim — accents and all
    — somewhere in `haystack`. Parentheticals in the term are usage notes, not
    part of the string to match, so "đóng (học phí)" is matched on "đóng". */
@@ -125,6 +133,44 @@ export function compareAnswer(typed, expected) {
   if (a === b) return 'exact';
   if (base(a) === base(b)) return 'accent';
   return 'wrong';
+}
+
+/* A meaning is judged more loosely than a word, and deliberately so. A card's
+   back is written to be read, not typed back verbatim — in practice it looks
+   like "to go back; to return" or "to deal with (penalise)". So, for meanings
+   only:
+
+     - each part between semicolons is a meaning on its own;
+     - a bracketed note is context, and may be left out;
+     - a leading "to" on a verb is optional.
+
+   Commas are deliberately NOT split on. In a sentence or a pattern a comma is
+   grammar — "If I were him, I'd have quit" — and accepting one half of that
+   would be accepting a wrong answer. */
+export function meaningVariants(meaning) {
+  const noNotes = (s) => String(s).replace(/\([^)]*\)/g, ' ');
+  const parts = String(meaning || '').split(';');
+  const all = [meaning, noNotes(meaning), ...parts, ...parts.map(noNotes)];
+  return [...new Set(all.map((v) => String(v).trim()).filter((v) => normalize(v)))];
+}
+
+function dropTo(s) {
+  return normalize(s).replace(/^to /, '');
+}
+
+/* 'exact', 'accent' or 'wrong', the best over every way of reading the
+   meaning. The same three verdicts compareAnswer gives, so the UI can treat a
+   typed meaning and a typed word alike. */
+export function compareMeaning(typed, meaning) {
+  const t = dropTo(typed);
+  if (!t) return 'wrong';
+  let best = 'wrong';
+  for (const v of meaningVariants(meaning)) {
+    const verdict = compareAnswer(t, dropTo(v));
+    if (verdict === 'exact') return 'exact';
+    if (verdict === 'accent') best = 'accent';
+  }
+  return best;
 }
 
 /* Character-level marks for an accent-only miss, so the offending letters can

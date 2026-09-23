@@ -28,7 +28,7 @@ without knowing anything about any of them.
 ## The four tabs
 
 **Settings** — where your data is saved, your API key, the language, the models, the call
-budget, the prompts, and which voices may read to you.
+budget, the prompts, the read-aloud voice, and which Gemini voices may read to you.
 
 **Flashcards** — a text box containing the deck file exactly as it is stored.
 There is no form over the top of it and no hidden second file: what you read is
@@ -39,11 +39,23 @@ where you choose which decks are in play — see below.
 **Typing** — one side of a card is shown and you type the other. Cards come from
 every ticked deck at once, drawn together as one pool. Right word with the wrong
 accents gets its own verdict, with the offending characters marked, because that
-is a different mistake from not knowing the word.
+is a different mistake from not knowing the word — and the card is flagged, so
+the **Accents** filter drills exactly the words whose marks you keep missing.
+
+The word can also be **read aloud** by your device's own voice, free and
+offline. With that on, a word that is the prompt is hidden behind a bar: you
+hear it and type the meaning, and *Show word* uncovers it if you need it.
+*Show answer* gives up on a card and counts it as a miss. Once a card has been
+answered you can edit its **notes** in place, and a meaning the app marked wrong
+can be **accepted** — which counts it right and saves it on the card as another
+way of saying the same thing.
 
 **Dictation** — a sentence is written around two or three of your weakest cards,
 spoken aloud, and diffed word by word against what you type. Needs an API key.
-Sentences are banked on disk and replay for free forever.
+Sentences are banked on disk and replay for free forever, and any one of them
+can be downloaded as a `.wav`. A target word you heard but mis-accented is
+flagged the same way Typing flags one, and Dictation has its own **Accents**
+filter for building sentences around those words.
 
 ## Choosing which decks are in play
 
@@ -98,10 +110,12 @@ matched by their target words instead, so an older folder keeps working.
   {
     "front": "lời đề nghị",
     "back": "offer, proposal",
+    "alternatives": ["a proposal"],
     "notes": "lời = words; đề nghị = to propose. E.g. \"Chị ấy từ chối lời đề nghị của anh ấy.\"",
     "score": 4,
     "recent": [true, true, false, true, true, true, false, true],
-    "last_seen": "2026-09-20"
+    "last_seen": "2026-09-20",
+    "accent_slip": true
   }
 ]
 ```
@@ -112,7 +126,20 @@ matched by their target words instead, so an older folder keeps working.
 by hand and they will be filled in. A bare `{"front": "…", "back": "…"}` is a
 perfectly good card.
 
-Those six are the whole schema; nothing else affects how the app behaves. Any
+`alternatives` are other meanings counted as right beside `back`. You can write
+them by hand, or let the Typing tab add one when you click *Accept my answer*.
+`accent_slip` is set while the card's last miss was the accents alone, and is
+what the **Accents** filter selects on; typing the word exactly clears it.
+
+A meaning is judged more loosely than a word, because a `back` is written to be
+read rather than typed back verbatim. Each part between **semicolons** counts on
+its own, a **bracketed** note may be left out, and a leading **"to"** is
+optional — so `to handle; to deal with (penalise)` accepts `deal with`. Commas
+are deliberately not split on: in a sentence a comma is grammar, and half of one
+is not an answer. The `front` is held to the letter, accents and all — that is
+the skill being drilled.
+
+Those eight are the whole schema; nothing else affects how the app behaves. Any
 other field you add is still carried through every save untouched, though, so
 you can keep a `"type"`, a tag, or a page reference alongside the cards and the
 app will leave them alone rather than deleting what it does not recognise.
@@ -153,7 +180,17 @@ audio/<id>.txt         its transcript, translation, target words,
                        deck and difficulty
 ```
 
-Which directory that is depends on the browser, and the app picks for you:
+There are two kinds of directory it can be, and **saving starts by itself** —
+there is nothing to set up before your first session is being kept:
+
+**Every browser** — private browser storage (the origin private file system).
+This is the floor the app stands on. The same files and the same layout, saved
+across reloads and shared between tabs — but they belong to the browser, not to
+you. No file manager shows them, and **clearing site data for the page deletes
+them**. The app asks to be exempt from eviction; if the browser refuses, the
+Settings page says so. Safari also clears script-writable storage for a site
+left unopened for weeks, so open the page now and then, or add it to your Home
+Screen, which exempts it.
 
 **Chrome and Edge** — a folder on disk that you choose, through the File System
 Access API. This is the better home and the one to prefer. The files are yours:
@@ -163,23 +200,43 @@ iCloud Drive and the sync client gives you multi-device study, version history
 and conflict handling for free — no account with anybody, and nothing for this
 app to do.
 
-**Firefox and Safari** — private browser storage (the origin private file
-system), because neither browser has a folder picker and neither is likely to
-get one. The same files, the same layout, saved across reloads and shared
-between tabs — but they belong to the browser, not to you. No file manager
-shows them, and **clearing site data for the page deletes them** — the way to
-take a copy is [the bundle](#the-bundle). The app asks to be exempt from
-eviction; if the browser refuses, the Settings page says so.
-Safari also clears script-writable storage for a site left unopened for weeks,
-so open the page now and then, or add it to your Home Screen, which exempts it.
+Firefox and Safari have no folder picker and neither is likely to get one, so
+browser storage is the whole story there.
 
-A folder wins wherever it exists, so only one store is ever live: a browser
-that can offer a folder never uses browser storage, and there is nothing to
-migrate between the two.
+**Exactly one store is live at a time**, and choosing a folder moves everything
+across rather than starting again: the contents of browser storage are copied
+into the folder, which must be empty of app data for the copy to happen — a
+folder that already holds a setup is the record, and is never written over.
+Disconnecting reverses it, copying the folder back into browser storage so the
+app lands somewhere current instead of on a months-old snapshot.
 
-With neither — an old browser, or a locked-down one — the app still runs and
-you can edit cards and practise typing, but nothing survives a reload. Export a
-bundle before you close the tab.
+If a folder write fails — it was moved, renamed, or its permission withdrawn —
+the app stops saving and says so, rather than quietly diverting your answers
+into browser storage and splitting the setup across two places. Choose the
+folder again to carry on.
+
+With neither store — an old browser, or a locked-down one — the app still runs
+and you can edit cards and practise typing, but nothing survives a reload.
+Export a bundle before you close the tab.
+
+### Backups
+
+Two different files, for two different jobs:
+
+| | **Export everything** | **Download backup** |
+|---|---|---|
+| Format | one readable JSON file | a `.zip` |
+| Holds | every deck, all settings | the whole store, byte for byte |
+| Dictation audio | no | **yes** |
+| Editable by hand | yes | no |
+
+The bundle is how a *setup* travels — small enough to mail yourself, and you can
+open it in a text editor and lift one deck out of it. The backup is the safety
+net: it is the only copy that keeps the dictation bank, which cost real API
+calls to make. It is laid out exactly like the data folder, so you can unzip it
+anywhere and point Chrome at it as a data folder, or bring it straight back with
+**Restore from a backup…**, which overwrites any file of the same name and
+leaves everything else alone.
 
 ## The bundle
 
@@ -287,8 +344,10 @@ index.html            the page
 css/app.css           one stylesheet
 js/text.js            comparison, diacritics, word diff
 js/deck.js            deck format, scoring, card selection
+js/speech.js          the device's own voices, for reading words aloud
 js/gemini.js          API calls, call budget, WAV wrapping
 js/bundle.js          the export/import file format
+js/zip.js             just enough zip to write and read a backup
 js/storage.js         the store: layout, files, and which backend is live
 js/fs-folder.js       backend — a folder the user picked (Chromium)
 js/fs-opfs.js         backend — private browser storage (everywhere)

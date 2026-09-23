@@ -9,6 +9,10 @@
      score      1..5, recomputed from recent[] after every answer
      recent     the last 8 results, oldest first
      last_seen  ISO date of the last answer
+     alternatives  optional: other meanings accepted as right, beside back
+     accent_slip   optional: true while the word's last miss was the accents
+                only. Set by a right-word-wrong-accents answer, cleared by an
+                exact one, and what the Accents filter drills.
 
    encounters and correct are derived from recent[] on demand and never
    stored: a rolling window of 8 is the only history kept, so a second copy of
@@ -27,9 +31,18 @@ export function stats(card) {
 }
 
 /* The one implementation of the scoring rules. Both practice modes call it;
-   nothing else may reimplement it. */
-export function recordResult(card, ok) {
+   nothing else may reimplement it.
+
+   accentSlip marks an answer that had the right word with the wrong accents.
+   It still counts as wrong — accents are the skill being drilled — but it also
+   flags the card for the Accents filter until the word is next typed exactly.
+   A plain wrong answer leaves the flag as it was, and so does a right answer
+   typed in the other direction (typedFront false): getting the meaning right
+   says nothing about whether the accents have been learnt. */
+export function recordResult(card, ok, { accentSlip = false, typedFront = true } = {}) {
   const before = card.score;
+  if (accentSlip) card.accent_slip = true;
+  else if (ok && typedFront) delete card.accent_slip;
   card.recent = Array.isArray(card.recent) ? card.recent : [];
   card.recent.push(!!ok);
   while (card.recent.length > WINDOW) card.recent.shift();
@@ -48,6 +61,33 @@ export function recordResult(card, ok) {
 
   card.last_seen = today();
   return { before, after: card.score, encounters, correct };
+}
+
+/* Turn the answer just recorded into a right one — the learner has said that a
+   meaning they typed is as good as the card's. The wrong answer is taken back
+   out of the window and a right one recorded in its place, through the same
+   rules as any other answer rather than by poking at the score. */
+export function amendLastToRight(card) {
+  if (Array.isArray(card.recent) && card.recent.length && card.recent[card.recent.length - 1] === false) {
+    card.recent.pop();
+  }
+  return recordResult(card, true, { typedFront: false });
+}
+
+/* Adds a meaning to the card's alternatives, unless it already matches one of
+   the meanings the card has. Returns true when the card changed. `same` is the
+   caller's idea of equality, because deck.js does not judge text. */
+export function addAlternative(card, text, same) {
+  const t = String(text || '').trim();
+  if (!t || meanings(card).some((m) => same(t, m))) return false;
+  card.alternatives = [...(card.alternatives || []), t];
+  return true;
+}
+
+/* Every answer that counts as this card's meaning: the back, then any
+   alternatives the learner has accepted. */
+export function meanings(card) {
+  return [card.back, ...((card && card.alternatives) || [])];
 }
 
 export function today() {
@@ -95,6 +135,7 @@ export function pickGroup(groups) {
 }
 
 export function inScope(card, scope) {
+  if (scope === 'accents') return !!card.accent_slip;
   if (scope === 'weak') return (card.score || 1) <= 2;
   if (scope === 'developing') return (card.score || 1) <= 3;
   return true;
@@ -117,7 +158,7 @@ export function isDictatable(card) {
   return core.length >= 1 && core.length <= 6;
 }
 
-const KNOWN_KEYS = new Set(['front', 'back', 'notes', 'score', 'recent', 'last_seen']);
+const KNOWN_KEYS = new Set(['front', 'back', 'alternatives', 'notes', 'score', 'recent', 'last_seen', 'accent_slip']);
 
 /* Fill in what a hand-written card leaves out, so bare front/back pairs pasted
    into the textarea work without ceremony.
@@ -131,12 +172,17 @@ export function normalizeCard(raw) {
     front: String((raw && raw.front) || '').trim(),
     back: String((raw && raw.back) || '').trim(),
   };
+  if (raw && Array.isArray(raw.alternatives)) {
+    const alts = raw.alternatives.map((a) => String(a || '').trim()).filter(Boolean);
+    if (alts.length) card.alternatives = alts;
+  }
   if (raw && raw.notes) card.notes = String(raw.notes);
   const score = Number(raw && raw.score);
   card.score = Number.isFinite(score) && score >= 1 && score <= 5 ? Math.round(score) : 1;
   card.recent = Array.isArray(raw && raw.recent)
     ? raw.recent.slice(-WINDOW).map(Boolean) : [];
   card.last_seen = (raw && raw.last_seen) || null;
+  if (raw && raw.accent_slip === true) card.accent_slip = true;
 
   for (const key of Object.keys(raw || {})) {
     if (KNOWN_KEYS.has(key) || key === '__proto__') continue;
@@ -207,10 +253,12 @@ function tidy(msg) {
 export function serializeDeck(cards) {
   const out = cards.map((c) => {
     const o = { front: c.front, back: c.back };
+    if (c.alternatives && c.alternatives.length) o.alternatives = c.alternatives;
     if (c.notes) o.notes = c.notes;
     o.score = c.score;
     o.recent = c.recent;
     if (c.last_seen) o.last_seen = c.last_seen;
+    if (c.accent_slip) o.accent_slip = true;
     /* Anything the user added themselves goes out last, so the keys this app
        writes stay in a predictable order above it. */
     for (const key of Object.keys(c)) {
@@ -251,6 +299,18 @@ export function importWatchlist(text) {
     .filter((c) => c.front && c.back);
   if (!cards.length) return { error: 'No items with both a term and an English meaning.' };
   return { cards };
+}
+
+/* A file someone opened: a deck, or failing that a CLI watchlist. The deck's
+   own error is the one reported, since a deck is what most files will be.
+   (store.js has its own readDeckFile, which takes a deck's name and goes to
+   the store for it; this one is handed the text and decides what it is.) */
+export function parseDeckFile(text) {
+  const deck = parseDeck(text);
+  if (!deck.error) return { cards: deck.cards, format: 'deck' };
+  const watchlist = importWatchlist(text);
+  if (!watchlist.error) return { cards: watchlist.cards, format: 'watchlist' };
+  return { error: deck.error };
 }
 
 export function slugify(name) {

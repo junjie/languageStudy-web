@@ -151,6 +151,11 @@ export async function cardAnswered(...cards) {
   return ok;
 }
 
+/* The same write under the name to use when the edit was not an answer —
+   notes typed during practice, say. Which deck a card belongs to is the only
+   question either one is really asking. */
+export const saveCardDecks = cardAnswered;
+
 export async function refreshDeckList() {
   state.deckNames = state.persistent ? await storage.listDecks() : [state.deckName];
   for (const name of Object.keys(state.decks)) {
@@ -162,13 +167,18 @@ export async function refreshDeckList() {
 
 export async function createDeck(label, cards) {
   const name = uniqueDeckName(slugify(label));
+  /* Read before state.deckName moves. With nothing ticked, practiceDecks()
+     falls back to the open deck — and that fallback has to mean the deck that
+     was open, not the one being created, or making your second deck silently
+     takes the first one out of practice. */
+  const ticked = practiceDecks();
   adopt(name, (cards || []).map(normalizeCard));
   state.deckName = name;
   await saveDeck(name);
   await refreshDeckList();
   storage.localSet('lastDeck', name);
   /* A deck you just made is one you meant to study, so it starts ticked. */
-  await setPracticeDecks([...practiceDecks(), name]);
+  await setPracticeDecks([...ticked, name]);
   emit('deck');
   return name;
 }

@@ -58,6 +58,10 @@ export const DEFAULT_SETTINGS = {
   voices: VOICE_NAMES.slice(),
   fallbackVoice: 'Kore',
   typingDirection: 'random',
+  /* Read the word being learnt aloud in Typing, with the browser's own voice. */
+  typingSpeak: true,
+  /* Name of the browser voice to read with; '' picks the best installed. */
+  speechVoice: '',
   /* Which decks the practice tabs may draw from. Empty means "whichever deck
      is open" — the honest answer on a fresh install, where there is only one.
      The Flashcards tab keeps this list and never lets it empty out. */
