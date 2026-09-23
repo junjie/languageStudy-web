@@ -20,7 +20,7 @@ import {
   stats, SCORE_LABEL,
 } from './deck.js';
 import * as speech from './speech.js';
-import { compareAnswer, compareMeaning, normalize, accentMarks, escapeHtml, scoreMark } from './text.js';
+import { compareAnswer, compareMeaning, normalize, words, diff, accentMarks, escapeHtml, scoreMark } from './text.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -182,25 +182,32 @@ function next() {
           <input type="text" class="answer-input" id="ty-input" lang="${shownSide === 'front' ? 'en' : code}" autocomplete="off" autocapitalize="off" spellcheck="false">
         </label>
         <div class="row" style="margin-top:12px">
-          <button class="btn btn--primary" id="ty-check">Check</button>
+          <button class="btn btn--primary" id="ty-check"></button>
           <button class="btn btn--primary" id="ty-next" hidden>Next card</button>
-          <button class="btn" id="ty-reveal" title="Shows the answer and counts it as a miss">Show answer</button>
           <button class="btn" id="ty-skip" title="Moves on without counting anything">Skip</button>
         </div>
         <div id="ty-feedback" style="margin-top:16px"></div>
       </div>
     </div>`;
 
-  $('ty-check').addEventListener('click', check);
+  /* One button, two jobs, decided by whether anything has been typed: with
+     an empty box there is nothing to check, so it offers the answer; the
+     moment there is something, it checks it. Two buttons side by side meant
+     a stray click on Show answer threw away an answer that could have been
+     marked. */
+  $('ty-check').addEventListener('click', () => ($('ty-input').value.trim() ? check() : reveal()));
   $('ty-next').addEventListener('click', next);
   $('ty-skip').addEventListener('click', next);
-  $('ty-reveal').addEventListener('click', reveal);
   const input = $('ty-input');
+  input.addEventListener('input', renderCheck);
   input.addEventListener('keydown', (e) => {
     if (e.key !== 'Enter') return;
     e.preventDefault();
-    if (answered) next(); else check();
+    /* Enter never gives up on a card: a second Enter after Next would land
+       on the new, empty box and count a miss nobody meant. */
+    if (answered) next(); else if (input.value.trim()) check();
   });
+  renderCheck();
   input.focus();
   renderPrevious();
   /* The word is on screen, so hear it now. When it is the answer it waits
@@ -299,6 +306,7 @@ function check() {
   /* Only a slip in the language being learnt counts: an accent missed while
      typing the English meaning is not what this list is for. */
   const accentSlip = verdict === 'accent' && shownSide === 'back';
+  const slipBefore = !!current.accent_slip;
   const move = recordResult(current, ok, { accentSlip, typedFront: shownSide === 'back' });
   tally.total++;
   if (ok) tally.right++; else tally.wrong++;
@@ -307,8 +315,8 @@ function check() {
   settle(ok);
 
   $('ty-feedback').innerHTML = feedback(verdict, typed, expected, move);
-  last = { typed, expected, before: move.before };
-  justAnswered = { shown: current[shownSide], expected, typed, verdict, notes: current.notes };
+  last = { typed, expected, before: move.before, slipBefore };
+  justAnswered = { shown: current[shownSide], expected, typed, verdict, notes: current.notes, words: wordMarks(verdict, typed, expected) };
   store.cardAnswered(current);
 }
 
@@ -335,13 +343,19 @@ function renderTally() {
   $('ty-wrong').textContent = tally.wrong;
 }
 
+function renderCheck() {
+  const btn = $('ty-check');
+  const typed = !!$('ty-input').value.trim();
+  btn.textContent = typed ? 'Check' : 'Show answer';
+  btn.title = typed ? 'Marks what you typed' : 'Shows the answer and counts it as a miss';
+}
+
 /* Lock the card once it has a verdict, and hand the keyboard to Next. */
 function settle(ok) {
   const input = $('ty-input');
   input.disabled = true;
   input.className = 'answer-input ' + (ok ? 'is-ok' : 'is-bad');
   $('ty-check').hidden = true;
-  $('ty-reveal').hidden = true;
   $('ty-skip').hidden = true;
   const nextBtn = $('ty-next');
   nextBtn.hidden = false;
@@ -357,15 +371,23 @@ function bestVerdict(typed, options) {
   return verdicts.includes('exact') ? 'exact' : verdicts.includes('accent') ? 'accent' : 'wrong';
 }
 
+/* Two ways to overrule a miss. A meaning is saved as an alternative, since
+   English has many fair renderings and the same one will come up again. A
+   word in the language being learnt is only counted right, this once: the
+   card keeps the form it was written with, and nothing is added to it. */
 function acceptAnswer() {
   if (!last || !current) return;
-  addAlternative(current, last.typed, (a, b) => compareMeaning(a, b) === 'exact');
+  const meaning = shownSide === 'front';
+  if (meaning) addAlternative(current, last.typed, (a, b) => compareMeaning(a, b) === 'exact');
   const move = { ...amendLastToRight(current), before: last.before };
+  /* Marked right, this answer's accents were not a slip after all — but a
+     flag from an earlier miss is left for a real exact answer to clear. */
+  if (!meaning && !last.slipBefore) delete current.accent_slip;
   tally.right++;
   tally.wrong--;
   renderTally();
   $('ty-input').className = 'answer-input is-ok';
-  $('ty-feedback').innerHTML = feedback('accepted', last.typed, last.expected, move);
+  $('ty-feedback').innerHTML = feedback(meaning ? 'accepted' : 'marked', last.typed, last.expected, move);
   if (justAnswered) justAnswered.verdict = 'exact';
   last = null;
   $('ty-next').focus();
@@ -379,14 +401,18 @@ function feedback(verdict, typed, expected, move) {
 
   const alts = shownSide === 'front' && (current.alternatives || []).length
     ? `<div class="typed-back" style="margin-top:6px">also accepted: ${current.alternatives.map(escapeHtml).join(' · ')}</div>` : '';
-  /* Only a meaning can be accepted: the word itself has one right spelling. */
   const acceptBtn = shownSide === 'front'
     ? `<div class="row" style="margin-top:10px"><button class="btn btn--sm" id="ty-accept">Accept my answer</button>
-       <span class="note">Counts it as right, and saves it as another meaning of this card.</span></div>` : '';
+       <span class="note">Counts it as right, and saves it as another meaning of this card.</span></div>`
+    : `<div class="row" style="margin-top:10px"><button class="btn btn--sm" id="ty-accept">Mark as right</button>
+       <span class="note">Counts it as right this time. Nothing is saved to the card.</span></div>`;
 
   let head;
   if (verdict === 'revealed') {
     head = `<div class="verdict is-bad">Answer <span class="reveal">${escapeHtml(expected)}</span>${moved}</div>${alts}`;
+  } else if (verdict === 'marked') {
+    head = `<div class="verdict is-ok">Marked right${moved}</div>
+      <div class="typed-back" style="margin-top:6px">you typed <strong>${escapeHtml(typed)}</strong> · the card says <strong>${escapeHtml(expected)}</strong></div>`;
   } else if (verdict === 'accepted') {
     head = `<div class="verdict is-ok">Accepted${moved}</div>
       <div class="typed-back" style="margin-top:6px">“${escapeHtml(typed)}” is now saved as another meaning, beside <strong>${escapeHtml(expected)}</strong></div>`;
@@ -402,9 +428,10 @@ function feedback(verdict, typed, expected, move) {
       <span class="reveal">${escapeHtml(expected)}</span>${moved}</div>
       <div class="typed-back" style="margin-top:6px">you typed ${markAccents(typed, expected)}</div>${alts}${acceptBtn}`;
   } else {
+    const marks = wordMarks(verdict, typed, expected);
     head = `<div class="verdict is-bad">Not quite
       <span class="reveal">${escapeHtml(expected)}</span>${moved}</div>
-      <div class="typed-back" style="margin-top:6px">you typed <s>${escapeHtml(typed)}</s></div>${alts}${acceptBtn}`;
+      <div class="typed-back" style="margin-top:6px">you typed ${marks || `<s>${escapeHtml(typed)}</s>`}</div>${marks ? WORD_LEGEND : ''}${alts}${acceptBtn}`;
   }
 
   /* When the word was the answer it has only just appeared — in the verdict
@@ -468,6 +495,26 @@ function markAccents(typed, expected) {
     .join('');
 }
 
+/* A wrong answer in the language being learnt, marked word by word the way
+   Dictation marks a sentence — so "có tải có đẹp" for "có tài có sắc" shows
+   two words right, one with the wrong accent and one that is not the word,
+   rather than striking out the lot. Only when something in it matched:
+   marking every word of an unrelated answer wrong says nothing a strike-
+   through does not. Meanings are not marked this way; they are matched by
+   parts and alternatives, not word by word. Returns '' when not used. */
+function wordMarks(verdict, typed, expected) {
+  if (verdict !== 'wrong' || shownSide !== 'back') return '';
+  const d = diff(words(expected), words(typed));
+  if (!d.ok && !d.accent) return '';
+  const cls = { ok: '', accent: 'w-accent', missing: 'w-missing', extra: 'w-extra' };
+  return d.tokens.map(({ kind, text }) => `<span class="w ${cls[kind]}">${escapeHtml(text)}</span>`).join(' ');
+}
+
+const WORD_LEGEND = `<div class="legend" style="margin-top:6px">
+  <span><i class="w w-accent">word</i> wrong accent</span>
+  <span><i class="w w-extra">word</i> not in the answer</span>
+  <span><i class="w w-missing">word</i> missing</span></div>`;
+
 function renderPrevious() {
   const el = $('ty-prev');
   if (!previous) { el.innerHTML = ''; return; }
@@ -476,7 +523,7 @@ function renderPrevious() {
   /* The same marking as the feedback it came from: one wrong accent is one
      highlighted letter, not a struck-out answer. */
   const shownTyped = verdict === 'accent' ? markAccents(previous.typed, previous.expected)
-    : `<s>${escapeHtml(previous.typed)}</s>`;
+    : previous.words || `<s>${escapeHtml(previous.typed)}</s>`;
   const typed = verdict === 'exact' || verdict === 'revealed' ? '' :
     `<div class="typed-back" style="margin-top:4px">you typed ${shownTyped}</div>`;
   el.innerHTML = `
