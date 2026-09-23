@@ -167,8 +167,9 @@ app to do.
 system), because neither browser has a folder picker and neither is likely to
 get one. The same files, the same layout, saved across reloads and shared
 between tabs — but they belong to the browser, not to you. No file manager
-shows them, and **clearing site data for the page deletes them.** The app asks
-to be exempt from eviction; if the browser refuses, the Settings page says so.
+shows them, and **clearing site data for the page deletes them** — the way to
+take a copy is [the bundle](#the-bundle). The app asks to be exempt from
+eviction; if the browser refuses, the Settings page says so.
 Safari also clears script-writable storage for a site left unopened for weeks,
 so open the page now and then, or add it to your Home Screen, which exempts it.
 
@@ -177,8 +178,48 @@ that can offer a folder never uses browser storage, and there is nothing to
 migrate between the two.
 
 With neither — an old browser, or a locked-down one — the app still runs and
-you can edit cards and practise typing, but nothing survives a reload. The deck
-download button is the way out.
+you can edit cards and practise typing, but nothing survives a reload. Export a
+bundle before you close the tab.
+
+## The bundle
+
+**Export everything** writes one JSON file holding every deck and all your
+settings. **Import a bundle…** reads one back. That file is how a setup travels:
+
+- back it up, on a browser whose storage you cannot copy by hand
+- move to another machine, or from Firefox to Chrome
+- restore after a browser cleared its site data
+- hand someone else your decks
+
+```
+{
+  "app": "language-study-web",
+  "bundle": 1,
+  "exported": "2026-09-23T09:15:00.000Z",
+  "settings": { ... },
+  "decks": { "default": [ {card}, ... ], "verbs": [ ... ] }
+}
+```
+
+Each deck inside it is exactly the array its own file holds, so a bundle can be
+opened in a text editor and a single deck lifted straight out of it.
+
+Two things are left out on purpose. The **API key** is a credential, not app
+state, and a bundle is the kind of file people mail to themselves. The
+**dictation audio** is the bulk of a setup by an order of magnitude, and base64
+inside a JSON document is the wrong home for it — it is a cache the Dictation
+tab refills, so the manifest stays behind with it rather than arriving as an
+index of sentences whose audio is missing.
+
+**Importing never overwrites anything.** Every deck in the bundle is added
+alongside what you have, and a name already taken gets a free one — import the
+same bundle twice and you get `verbs` and `verbs-2`, not one merged deck.
+Reconciling two histories of the same card cannot be done without guessing, and
+a wrong guess silently throws away practice. The file is described to you before
+anything is written, and you confirm. Importing needs somewhere to save, so on
+Chrome and Edge choose a folder first.
+
+Exporting works whatever the browser can or cannot save.
 
 ## The API key
 
@@ -247,6 +288,7 @@ css/app.css           one stylesheet
 js/text.js            comparison, diacritics, word diff
 js/deck.js            deck format, scoring, card selection
 js/gemini.js          API calls, call budget, WAV wrapping
+js/bundle.js          the export/import file format
 js/storage.js         the store: layout, files, and which backend is live
 js/fs-folder.js       backend — a folder the user picked (Chromium)
 js/fs-opfs.js         backend — private browser storage (everywhere)

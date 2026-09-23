@@ -6,12 +6,18 @@ import * as store from './store.js';
 import { VOICES, DEFAULT_SENTENCE_PROMPT, DEFAULT_SPEECH_PROMPT } from './defaults.js';
 import { fillTemplate, sentenceVars, formatWait, GeminiError, QuotaError } from './gemini.js';
 import { serializeDeck } from './deck.js';
+import { serializeBundle, parseBundle, describeBundle, bundleFilename } from './bundle.js';
 
 const $ = (id) => document.getElementById(id);
 
 /* One handle kept aside when a folder is remembered but its permission has
    lapsed — requestPermission() is only allowed from a click. */
 let pendingHandle = null;
+
+/* A bundle that has been read and understood but not yet written anywhere.
+   Importing is the one action here that can change every deck at once, so the
+   file is described first and nothing happens until that is confirmed. */
+let pendingBundle = null;
 
 const SAMPLE_TERMS = [
   { front: 'cải tiến', back: 'to improve' },
@@ -64,6 +70,85 @@ function wireStore() {
   $('store-export').addEventListener('click', () => {
     storage.download(`${store.state.deckName}.json`, serializeDeck(store.state.cards));
   });
+
+  $('store-export-all').addEventListener('click', () => {
+    const bundle = store.exportBundle();
+    const name = bundleFilename();
+    storage.download(name, serializeBundle(bundle));
+    setStoreStatus(`Exported ${describeBundle(readBack(bundle))} to ${name}.`, 'is-ok');
+  });
+
+  $('store-import').addEventListener('click', () => {
+    if (!store.state.persistent) {
+      setStoreStatus('There is nowhere to import to yet. Choose a folder first, so the decks have somewhere to land.', 'is-warn');
+      return;
+    }
+    $('store-import-file').click();
+  });
+
+  $('store-import-file').addEventListener('change', async (e) => {
+    const file = e.target.files && e.target.files[0];
+    /* Cleared so that picking the same file again still counts as a change. */
+    e.target.value = '';
+    if (!file) return;
+    showImport(null);
+    let text = '';
+    try {
+      text = await file.text();
+    } catch (err) {
+      setStoreStatus(`Could not read ${file.name}: ${err.message}`, 'is-bad');
+      return;
+    }
+    const parsed = parseBundle(text);
+    if (parsed.error) {
+      setStoreStatus(`${file.name} cannot be imported — ${parsed.error}`, 'is-bad');
+      return;
+    }
+    pendingBundle = parsed.bundle;
+    showImport(`${file.name} holds ${describeBundle(parsed.bundle)}. Importing adds these decks alongside the ones you have — nothing is replaced or overwritten, and a name already in use gets a free one.`);
+  });
+
+  $('import-confirm').addEventListener('click', async () => {
+    const bundle = pendingBundle;
+    pendingBundle = null;
+    showImport(null);
+    if (!bundle) return;
+    let added = [];
+    try {
+      added = await store.importBundle(bundle);
+    } catch (err) {
+      setStoreStatus(`Import failed: ${err.message}`, 'is-bad');
+      return;
+    }
+    /* After the import, because it emits and every emit rewrites this line. */
+    const renamed = added.filter((a) => a.name !== a.from);
+    const bits = [`Imported ${added.length} deck${added.length === 1 ? '' : 's'}`];
+    if (renamed.length) {
+      bits.push(`renamed to avoid a clash: ${renamed.map((r) => `"${r.from}" → "${r.name}"`).join(', ')}`);
+    }
+    if (bundle.settings) bits.push('settings applied');
+    setStoreStatus(bits.join(' · ') + '.', 'is-ok');
+  });
+
+  $('import-cancel').addEventListener('click', () => {
+    pendingBundle = null;
+    showImport(null);
+    setStoreStatus('Import cancelled — nothing was changed.', '');
+  });
+}
+
+/* Show the pending bundle, or hide the whole block when there is none. */
+function showImport(text) {
+  const box = $('import-preview');
+  $('import-note').textContent = text || '';
+  box.hidden = !text;
+}
+
+/* describeBundle() speaks about a parsed bundle, so an exported one is read
+   back through the same parser to be described by the same code. */
+function readBack(bundle) {
+  const parsed = parseBundle(serializeBundle(bundle));
+  return parsed.bundle || { decks: [], settings: bundle.settings || null, exported: bundle.exported || null };
 }
 
 export async function restoreStore() {

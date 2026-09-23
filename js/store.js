@@ -20,6 +20,7 @@
 import * as storage from './storage.js';
 import { withDefaults, STARTER_DECK, DEFAULT_SETTINGS } from './defaults.js';
 import { parseDeck, serializeDeck, normalizeCard, slugify } from './deck.js';
+import { makeBundle, bundleCards } from './bundle.js';
 import { RateLimiter, createClient } from './gemini.js';
 
 const SETTINGS_FILE = 'settings.json';
@@ -204,7 +205,12 @@ export async function deleteDeck() {
 }
 
 function uniqueDeckName(base) {
-  const taken = new Set(state.deckNames.filter((n) => n !== state.deckName));
+  /* The open deck is not a clash with itself: renaming a deck to the name it
+     already has has to be allowed to do nothing. */
+  return freeDeckName(base, new Set(state.deckNames.filter((n) => n !== state.deckName)));
+}
+
+function freeDeckName(base, taken) {
   if (!taken.has(base)) return base;
   let n = 2;
   while (taken.has(`${base}-${n}`)) n++;
@@ -275,6 +281,64 @@ export function findCard(front, preferred) {
 
 export async function saveManifest() {
   if (state.persistent) await storage.writeJson(MANIFEST_FILE, state.manifest);
+}
+
+/* ── the bundle: everything out, and back in ─────────────────────────── */
+
+/* Whatever is in hand, which with a store connected is every deck it holds and
+   without one is the single deck in memory. */
+export function exportBundle(now = new Date()) {
+  const names = [...state.deckNames, ...Object.keys(state.decks)];
+  const decks = [];
+  const seen = new Set();
+  for (const name of names) {
+    if (seen.has(name) || !state.decks[name]) continue;
+    seen.add(name);
+    decks.push([name, state.decks[name]]);
+  }
+  return makeBundle({ settings: state.settings, decks, now });
+}
+
+/* Additive, and never destructive: a deck whose name is taken is imported
+   under a free one. Importing the same bundle twice therefore gives two copies
+   rather than one merged deck — reconciling two histories of the same card is
+   the one thing this cannot do without guessing, and guessing would quietly
+   throw away practice.
+
+   Needs a store. Without one, refreshDeckList() keeps only the open deck, so a
+   four-deck bundle would come in and three quarters of it would vanish at the
+   next edit; the UI asks for a folder first instead. */
+export async function importBundle(bundle, { settings: withSettings = true } = {}) {
+  if (!state.persistent) throw new Error('Nothing is being saved, so there is nowhere to import to.');
+
+  const taken = new Set([...state.deckNames, ...Object.keys(state.decks)]);
+  const added = [];
+  for (const [from, cards] of bundle.decks) {
+    const name = freeDeckName(slugify(from), taken);
+    taken.add(name);
+    adopt(name, bundleCards(cards));
+    await saveDeck(name);
+    added.push({ from, name });
+  }
+
+  /* Open the first thing that came in, so an import is something you can see. */
+  if (added.length) {
+    state.deckName = added[0].name;
+    storage.localSet('lastDeck', state.deckName);
+  }
+  await refreshDeckList();
+
+  if (withSettings && bundle.settings) {
+    /* practiceDecks is dropped on the way in: it names decks as the bundle
+       called them, and anything renamed above would leave a tick pointing at
+       nothing. What was imported is ticked below instead. */
+    const { practiceDecks: _ticks, ...rest } = bundle.settings;
+    await saveSettings(rest);
+  }
+  if (added.length) await setPracticeDecks([...practiceDecks(), ...added.map((a) => a.name)]);
+
+  emit('deck');
+  return added;
 }
 
 /* ── connecting ──────────────────────────────────────────────────────── */

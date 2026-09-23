@@ -36,7 +36,20 @@
       <div class="row">
         <button class="btn btn--primary" id="store-choose">Choose folder</button>
         <button class="btn" id="store-disconnect" hidden>Disconnect</button>
+      </div>
+      <p class="note"><strong>One file holds a whole setup:</strong> every deck and all your settings, ready to keep somewhere safe, carry to another machine, or bring back after a browser clears its storage. The API key is left out on purpose, and so is the dictation audio — it is a cache the Dictation tab refills, not something to mail around.</p>
+      <div class="row">
+        <button class="btn" id="store-export-all">Export everything</button>
+        <button class="btn" id="store-import">Import a bundle…</button>
+        <input type="file" id="store-import-file" accept="application/json,.json" hidden>
         <button class="btn btn--sm" id="store-export" hidden>Download current deck</button>
+      </div>
+      <div class="banner" id="import-preview" hidden>
+        <p class="note" id="import-note"></p>
+        <div class="row">
+          <button class="btn btn--primary btn--sm" id="import-confirm">Import</button>
+          <button class="btn btn--sm" id="import-cancel">Cancel</button>
+        </div>
       </div>
     </div>
     <div class="status" id="store-status">Working out where this browser can save.</div>
