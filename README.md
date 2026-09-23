@@ -110,7 +110,8 @@ audio/<id>.txt         its transcript, translation and target words
 layout. Unzip it and Chrome can open it as a data folder; **Restore from zip**
 or **Restore from folder** reads one back into any browser. A restore replaces
 decks and settings of the same name, keeps everything else, and merges the
-dictation bank, so an old backup never drops a sentence made since.
+dictation bank, so an old backup never drops a sentence made since. Each
+dictation card also has **Download audio** for its own WAV.
 
 Connecting an empty folder copies across what the browser already holds, so
 practice done before you picked one comes with you. A folder that already has

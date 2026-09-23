@@ -52,6 +52,7 @@ export function init() {
   $('dc-bank-btn').addEventListener('click', fromBank);
   $('dc-check').addEventListener('click', check);
   $('dc-next').addEventListener('click', advance);
+  $('dc-download').addEventListener('click', downloadAudio);
 
   $('dc-input').addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); check(); }
@@ -249,6 +250,7 @@ async function loadCard(entry) {
   audio = src ? new Audio(src) : null;
   if (audio) audio.playbackRate = rate;
   $('dc-play').disabled = !audio;
+  $('dc-download').disabled = !audio;
 
   const count = (entry.terms || []).length;
   const wordCount = words(entry.sentence).length;
@@ -276,6 +278,17 @@ async function loadCard(entry) {
 
   if (!audio) showError('The audio file for this sentence is missing from the folder.');
   else play();
+}
+
+/* The sentence's audio as a file, named by its bank id. The transcript is
+   not bundled: it is the answer, and is on screen once you have checked. */
+async function downloadAudio() {
+  if (!current) return;
+  const blob = current.blobUrl
+    ? await fetch(current.blobUrl).then((r) => r.blob()).catch(() => null)
+    : await storage.readBlob(current.file);
+  if (!blob) { showError('The audio for this sentence could not be read.'); return; }
+  storage.download(`${current.id}.wav`, blob);
 }
 
 function play() {
