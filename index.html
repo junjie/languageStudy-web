@@ -176,10 +176,11 @@
           <button class="btn btn--sm" id="deck-new">New</button>
           <button class="btn btn--sm" id="deck-rename">Rename</button>
           <button class="btn btn--sm btn--danger" id="deck-delete">Delete</button>
-          <button class="btn btn--sm" id="deck-import">Import watchlist…</button>
+          <button class="btn btn--sm" id="deck-open" title="Adds each chosen .json file as a new deck named after the file. Existing decks are never overwritten.">Import as new deck…</button>
+          <input type="file" id="deck-open-input" accept=".json,application/json" multiple hidden>
         </div>
       </div>
-      <p class="note">This is the deck file itself: a JSON array, one object per card. <strong>front</strong> is the word in the language you are learning, <strong>back</strong> is its meaning; <strong>notes</strong> is optional. <strong>score</strong>, <strong>recent</strong> and <strong>last_seen</strong> are written by the practice tabs, so you can leave them out of a card you type by hand and they will be filled in.</p>
+      <p class="note">You can keep as many decks as you like, one file each; Typing and Dictation practise whichever deck is selected here. This is the deck file itself: a JSON array, one object per card. <strong>front</strong> is the word in the language you are learning, <strong>back</strong> is its meaning; <strong>notes</strong> is optional. <strong>score</strong>, <strong>recent</strong> and <strong>last_seen</strong> are written by the practice tabs, so you can leave them out of a card you type by hand and they will be filled in.</p>
       <textarea class="editor" id="deck-editor" spellcheck="false" aria-label="Deck contents as JSON"></textarea>
       <div class="row">
         <button class="btn btn--primary" id="deck-save">Save deck</button>

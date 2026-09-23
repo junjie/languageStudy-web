@@ -232,6 +232,16 @@ export function importWatchlist(text) {
   return { cards };
 }
 
+/* A file someone opened: a deck, or failing that a watchlist. The deck's own
+   error is the one reported, since a deck is what most files will be. */
+export function readDeckFile(text) {
+  const deck = parseDeck(text);
+  if (!deck.error) return { cards: deck.cards, format: 'deck' };
+  const watchlist = importWatchlist(text);
+  if (!watchlist.error) return { cards: watchlist.cards, format: 'watchlist' };
+  return { error: deck.error };
+}
+
 export function slugify(name) {
   const s = String(name || '').trim().toLowerCase()
     .normalize('NFD').replace(/[̀-ͯ]/g, '')

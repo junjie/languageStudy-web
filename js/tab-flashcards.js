@@ -5,7 +5,7 @@
    the point: a deck can be written, pasted or diffed anywhere. */
 
 import * as store from './store.js';
-import { parseDeck, serializeDeck, importWatchlist, stats, SCORE_LABEL } from './deck.js';
+import { parseDeck, serializeDeck, readDeckFile, stats, SCORE_LABEL } from './deck.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -65,7 +65,14 @@ export function init() {
     load();
   });
 
-  $('deck-import').addEventListener('click', doImport);
+  $('deck-open').addEventListener('click', async () => {
+    if (await confirmDiscard()) $('deck-open-input').click();
+  });
+  $('deck-open-input').addEventListener('change', async (e) => {
+    const files = [...e.target.files];
+    e.target.value = '';
+    if (files.length) await openFiles(files);
+  });
 
   store.subscribe('deck', () => { renderDeckList(); if (!dirty) load(); });
   renderDeckList();
@@ -141,21 +148,29 @@ function confirmDiscard() {
   return Promise.resolve(confirm('This deck has unsaved changes. Discard them?'));
 }
 
-/* Bring a watchlist.json from the CLI study system across. Pure text in,
-   cards out — nothing is read off the disk. */
-async function doImport() {
-  const text = prompt('Paste the contents of watchlist.json:');
-  if (!text) return;
-  const result = importWatchlist(text);
+/* Each file becomes a new deck named after it — never merged into or written
+   over an existing one, so opening a file is always safe to try. A
+   watchlist.json from the CLI study system is converted on the way in. With
+   nothing persisted there is only one deck, so the last file opened wins. */
+async function openFiles(files) {
   const el = $('deck-status');
-  if (result.error) {
-    el.textContent = 'Import failed: ' + result.error;
-    el.className = 'status is-bad';
-    return;
+  const done = [];
+  const count = (n) => `${n} card${n === 1 ? '' : 's'}`;
+  const failed = [];
+  for (const file of files) {
+    const result = readDeckFile(await file.text());
+    if (result.error) { failed.push(`${file.name}: ${result.error}`); continue; }
+    const label = file.name.replace(/\.json$/i, '');
+    if (store.state.persistent) {
+      const name = await store.createDeck(label, result.cards);
+      done.push(`${file.name} → ${name}.json (${count(result.cards.length)}${result.format === 'watchlist' ? ', from a watchlist' : ''})`);
+    } else {
+      store.setCards(result.cards);
+      done.push(`${file.name} (${count(result.cards.length)}, not saved)`);
+    }
   }
-  if (store.state.persistent) await store.createDeck('imported', result.cards);
-  else store.setCards(result.cards);
+  dirty = false;
   load();
-  el.textContent = `Imported ${result.cards.length} cards.`;
-  el.className = 'status is-ok';
+  el.textContent = [done.length ? 'Imported ' + done.join('; ') : '', ...failed].filter(Boolean).join('  ·  ');
+  el.className = 'status ' + (failed.length ? 'is-bad' : 'is-ok');
 }

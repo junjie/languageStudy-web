@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   recordResult, stats, isDictatable, normalizeCard, parseDeck, serializeDeck,
-  importWatchlist, pickWeighted, inScope, slugify, WINDOW,
+  importWatchlist, readDeckFile, pickWeighted, inScope, slugify, WINDOW,
 } from '../js/deck.js';
 
 const card = (recent = []) => ({ front: 'x', back: 'y', score: 1, recent: recent.slice() });
@@ -153,6 +153,17 @@ test('a watchlist converts into cards', () => {
   assert.equal(out.cards[0].front, 'cải tiến');
   assert.deepEqual(out.cards[0].recent, [true, false]);
   assert.match(importWatchlist('[]').error, /items/);
+});
+
+test('an opened file is read as a deck, else as a watchlist', () => {
+  const deck = readDeckFile('[{"front":"hola","back":"hello"}]');
+  assert.equal(deck.format, 'deck');
+  assert.equal(deck.cards[0].front, 'hola');
+  const wl = readDeckFile('{"items":[{"term":"cải tiến","english":"to improve"}]}');
+  assert.equal(wl.format, 'watchlist');
+  assert.equal(wl.cards[0].back, 'to improve');
+  assert.match(readDeckFile('{"nope":1}').error, /JSON array/);
+  assert.match(readDeckFile('[{"front":').error, /./);
 });
 
 test('weighted picking draws without replacement and favours weak cards', () => {
