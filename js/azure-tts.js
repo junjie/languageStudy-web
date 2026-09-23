@@ -90,11 +90,23 @@ export function filterVoices(all, code) {
     .sort((a, b) => a.label.localeCompare(b.label));
 }
 
+/* The text as far as the sound is concerned, for the fingerprint below.
+   Text that reads the same must land on the same clip, whatever produced
+   it: letters stored one standard way (NFC — "ệ" can arrive as one
+   character or as e plus two marks, depending on where it was typed or
+   pasted from), case ignored, runs of spaces collapsed and the ends
+   trimmed. Accents stay: "biệt" and "biết" are different words. So does
+   punctuation, since it changes how a line is read — "đi đâu?" rises. */
+export function spokenForm(text) {
+  return String(text || '').normalize('NFC').toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
 /* The file a clip is saved under: the voice, then a fingerprint of the voice
-   and the text. The same word in the same voice always lands on the same
-   name, so a saved clip is found again without an index. */
+   and the spoken form of the text. The same word in the same voice always
+   lands on the same name, so a saved clip is found again without an index,
+   and is shared by every card that has that word. */
 export async function clipName(voice, text) {
-  const bytes = new TextEncoder().encode(`${voice}\n${text}`);
+  const bytes = new TextEncoder().encode(`${voice}\n${spokenForm(text)}`);
   const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes));
   const hex = [...digest.slice(0, 10)].map((b) => b.toString(16).padStart(2, '0')).join('');
   return `${voice}_${hex}.mp3`;
