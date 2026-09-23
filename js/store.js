@@ -45,6 +45,11 @@ export const state = {
   /* True once a store is connected: until then everything is in memory and
      is lost on reload, which the UI has to keep saying out loud. */
   persistent: false,
+  /* False until boot has looked for a store and adopted whatever it found.
+     Before that, state.decks holds only the starter deck the page boots
+     with, which may be nothing like the user's — so nothing should be drawn
+     from it, and certainly not read aloud. */
+  ready: false,
 
   get cards() { return this.decks[this.deckName] || []; },
   set cards(cards) { this.decks[this.deckName] = cards; },
@@ -57,6 +62,7 @@ const subs = {
      tab you happen to be looking at. */
   bank: new Set(),
   shadow: new Set(),
+  ready: new Set(),
 };
 
 export function subscribe(topic, fn) {
@@ -96,6 +102,12 @@ export function resetQuota() {
 }
 
 /* ── settings ────────────────────────────────────────────────────────── */
+
+/* Boot is done: the stored decks, if any, are in place. Called once. */
+export function markReady() {
+  state.ready = true;
+  emit('ready');
+}
 
 export async function saveSettings(patch) {
   state.settings = withDefaults({ ...state.settings, ...patch });

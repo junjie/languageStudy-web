@@ -74,8 +74,14 @@ async function boot() {
   try { start = localStorage.getItem('lsw.tab') || 'settings'; } catch (e) { /* ignore */ }
   show(TABS[start] ? start : 'settings');
 
-  /* Last, because it may adopt a store and re-render everything. */
-  await settings.restoreStore();
+  /* Last, because it may adopt a store and re-render everything. Ready
+     either way: a store that could not be opened still leaves the app
+     running on what it has. */
+  try {
+    await settings.restoreStore();
+  } finally {
+    store.markReady();
+  }
 }
 
 boot();
