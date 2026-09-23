@@ -96,6 +96,7 @@ export function init() {
     renderPool();
     if (!current || (!answered && !pool().includes(current))) next();
   });
+  store.subscribe('ready', () => next());
   next();
 }
 
@@ -132,6 +133,14 @@ function next() {
   /* A skipped card has no answer to look back on, so it never replaces the
      last one that did. */
   if (justAnswered) { previous = justAnswered; justAnswered = null; }
+  /* Until boot has found the stored decks, the only cards in memory are the
+     starter deck's. Drawing one would put a word from a deck the user may
+     have deleted on screen, and read it aloud; wait instead. */
+  if (!store.state.ready) {
+    current = null;
+    $('ty-card').innerHTML = '<div class="gate"><p>Loading your cards…</p></div>';
+    return;
+  }
   renderPool();
   const p = pool();
   if (!p.length) {
