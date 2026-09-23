@@ -16,6 +16,7 @@ import { isDictatable, inScope, pickWeighted, recordResult, SCORE_LABEL } from '
 import { words, contains, containsLoosely, diff, escapeHtml, scoreMark } from './text.js';
 import { sidecarText, formatWait, QuotaError } from './gemini.js';
 import { describe } from './tab-settings.js';
+import { languageCode } from './speech.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -285,6 +286,7 @@ async function loadCard(entry) {
     : '<span class="chip-count">no target words on this card</span>';
 
   const input = $('dc-input');
+  input.lang = languageCode(entry.language || store.state.settings.targetLanguage);
   input.value = '';
   input.disabled = false;
   $('dc-check').hidden = false;

@@ -7,6 +7,7 @@ import { VOICES, DEFAULT_SENTENCE_PROMPT, DEFAULT_SPEECH_PROMPT } from './defaul
 import { fillTemplate, sentenceVars, formatWait, GeminiError, QuotaError } from './gemini.js';
 import { serializeDeck } from './deck.js';
 import { readZip } from './zip.js';
+import * as speech from './speech.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -30,6 +31,7 @@ export function init() {
   wireFields();
   wirePrompts();
   wireVoices();
+  wireSpeech();
 
   store.subscribe('settings', render);
   store.subscribe('folder', renderFolder);
@@ -403,6 +405,59 @@ function renderQuota() {
     ? 'unlimited'
     : `${q.cardsLeftToday} new card${q.cardsLeftToday === 1 ? '' : 's'} left`;
   void s;
+}
+
+/* ── read-aloud voice ─────────────────────────────────────────────────── */
+
+function wireSpeech() {
+  $('set-speech-voice').addEventListener('change', (e) => {
+    store.saveSettings({ speechVoice: e.target.value });
+  });
+  $('speech-sample').addEventListener('click', () => {
+    /* A word from the deck being learnt says more than a stock phrase. */
+    const card = store.state.cards.find((c) => c.front) || null;
+    const text = card ? card.front.replace(/\([^)]*\)/g, ' ') : 'Xin chào';
+    speech.speak(text, speech.languageCode(store.state.settings.targetLanguage), { voice: store.state.settings.speechVoice });
+  });
+  store.subscribe('settings', renderSpeech);
+  speech.onVoicesChanged(renderSpeech);
+  renderSpeech();
+}
+
+function renderSpeech() {
+  const s = store.state.settings;
+  const code = speech.languageCode(s.targetLanguage);
+  const list = speech.voicesFor(code);
+  const sel = $('set-speech-voice');
+  const chosen = s.speechVoice || '';
+  const missing = chosen && !list.some((v) => v.name === chosen);
+  sel.innerHTML = [
+    `<option value="">Best available${list[0] ? ` (${escapeAttr(list[0].name)})` : ''}</option>`,
+    ...list.map((v) => `<option value="${escapeAttr(v.name)}">${escapeAttr(v.name)} · ${escapeAttr(v.lang)}${v.localService ? '' : ' · online'}</option>`),
+    ...(missing ? [`<option value="${escapeAttr(chosen)}">${escapeAttr(chosen)} · not installed here</option>`] : []),
+  ].join('');
+  sel.value = chosen;
+  sel.disabled = !list.length;
+  $('speech-sample').disabled = !list.length;
+
+  const el = $('speech-status');
+  if (!code) {
+    el.textContent = `"${s.targetLanguage}" is not a language name this app knows a code for — try its English name, or a code such as "vi".`;
+    el.className = 'status is-warn';
+  } else if (!list.length) {
+    el.textContent = `No ${s.targetLanguage} voice is installed on this device, so nothing is read aloud.`;
+    el.className = 'status is-warn';
+  } else if (missing) {
+    el.textContent = `"${chosen}" is not installed on this device, so ${list[0].name} is used instead.`;
+    el.className = 'status is-warn';
+  } else {
+    el.textContent = `${list.length} ${s.targetLanguage} voice${list.length === 1 ? '' : 's'} installed.`;
+    el.className = 'status is-ok';
+  }
+}
+
+function escapeAttr(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
 }
 
 /* ── voices ──────────────────────────────────────────────────────────── */

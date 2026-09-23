@@ -27,7 +27,7 @@ without knowing anything about any of them.
 
 ## The four tabs
 
-**Settings** — where your data lives, backups, your API key, the language, the models, the call
+**Settings** — where your data lives, backups, the read-aloud voice, your API key, the language, the models, the call
 budget, the prompts, and which voices may read to you.
 
 **Flashcards** — a text box containing the deck file exactly as it is stored.
@@ -43,6 +43,11 @@ the wrong accents gets its own verdict, with the offending characters marked,
 because that is a different mistake from not knowing the word — and the card
 goes on the Accents list to drill later. **Show answer** gives up on a card (it
 counts as a miss); **Skip** moves on without counting anything.
+
+With **Read aloud** on, the word is spoken — straight away when it is the
+prompt, after you answer when it is the answer. **Hear it** replays it. The
+voices are the ones built into your operating system, so this is free and
+works offline; pick one in **Settings → Read-aloud voice**.
 
 **Dictation** — a sentence is written around two or three of your weakest cards,
 spoken aloud, and diffed word by word against what you type. Needs an API key.

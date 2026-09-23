@@ -58,6 +58,10 @@ export const DEFAULT_SETTINGS = {
   voices: VOICE_NAMES.slice(),
   fallbackVoice: 'Kore',
   typingDirection: 'random',
+  /* Read the word being learnt aloud in Typing, with the browser's voice. */
+  typingSpeak: true,
+  /* Name of the browser voice to read with; '' picks the best installed. */
+  speechVoice: '',
   theme: 'dark',
 };
 

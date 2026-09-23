@@ -13,6 +13,7 @@
 
 import * as store from './store.js';
 import { pickWeighted, inScope, recordResult, amendLastToRight, addAlternative, meanings, stats, SCORE_LABEL } from './deck.js';
+import * as speech from './speech.js';
 import { compareAnswer, compareMeaning, normalize, accentMarks, escapeHtml, scoreMark } from './text.js';
 
 const $ = (id) => document.getElementById(id);
@@ -43,6 +44,16 @@ export function init() {
     next();
   });
 
+  $('ty-speak').addEventListener('click', () => {
+    const on = !store.state.settings.typingSpeak;
+    store.saveSettings({ typingSpeak: on });
+    if (!on) speech.stop();
+    renderSpeak();
+  });
+  store.subscribe('settings', renderSpeak);
+  speech.onVoicesChanged(renderSpeak);
+  renderSpeak();
+
   $('ty-dir').addEventListener('click', (e) => {
     const btn = e.target.closest('button[data-dir]');
     if (!btn) return;
@@ -65,6 +76,8 @@ export function init() {
 export function onShow() {
   const input = $('ty-input');
   if (input && !input.disabled) input.focus();
+  /* A card drawn while another tab was open was not read then. */
+  if (current && !answered && shownSide === 'front') say();
 }
 
 function setSeg(id, key, value) {
@@ -107,6 +120,7 @@ function next() {
     : dir === 'random' ? (Math.random() < 0.5 ? 'front' : 'back') : (dir === 'back-to-front' ? 'back' : 'front');
 
   const shown = current[shownSide];
+  const code = targetCode();
   const askFor = shownSide === 'front' ? 'the meaning' : store.state.settings.targetLanguage;
   const { encounters, correct } = stats(current);
 
@@ -122,10 +136,11 @@ function next() {
       </div>
       <div class="card-body">
         <div class="prompt-label">${shownSide === 'front' ? escapeHtml(store.state.settings.targetLanguage) : 'Meaning'}</div>
-        <div class="prompt">${escapeHtml(shown)}</div>
+        <div class="prompt" lang="${shownSide === 'front' ? code : 'en'}">${escapeHtml(shown)}</div>
+        <button class="btn btn--sm" id="ty-say" ${shownSide === 'front' ? '' : 'hidden'}>Hear it</button>
         <label class="field" style="margin-top:24px">
           <span>Type ${escapeHtml(askFor)}</span>
-          <input type="text" class="answer-input" id="ty-input" autocomplete="off" autocapitalize="off" spellcheck="false">
+          <input type="text" class="answer-input" id="ty-input" lang="${shownSide === 'front' ? 'en' : code}" autocomplete="off" autocapitalize="off" spellcheck="false">
         </label>
         <div class="row" style="margin-top:12px">
           <button class="btn btn--primary" id="ty-check">Check</button>
@@ -141,6 +156,7 @@ function next() {
   $('ty-next').addEventListener('click', next);
   $('ty-skip').addEventListener('click', next);
   $('ty-reveal').addEventListener('click', reveal);
+  $('ty-say').addEventListener('click', () => say(true));
   const input = $('ty-input');
   input.addEventListener('keydown', (e) => {
     if (e.key !== 'Enter') return;
@@ -149,6 +165,38 @@ function next() {
   });
   input.focus();
   renderPrevious();
+  /* The word is on screen, so hear it now. When it is the answer, it waits
+     until the answer is in — see settle(). */
+  if (shownSide === 'front') say();
+}
+
+/* ── speech ──────────────────────────────────────────────────────────── */
+
+function targetCode() {
+  return speech.languageCode(store.state.settings.targetLanguage);
+}
+
+/* Reads the current card's word. `asked` is a click on Hear it, which plays
+   even with Read aloud turned off. Bracketed notes are not read out. */
+function say(asked = false) {
+  if (!current || (!asked && !store.state.settings.typingSpeak)) return;
+  /* Cards are drawn in the background too — on load, or when the deck
+     changes from another tab. Only speak to someone looking at this one. */
+  if ($('panel-typing').hidden) return;
+  speech.speak(current.front.replace(/\([^)]*\)/g, ' '), targetCode(), { voice: store.state.settings.speechVoice });
+}
+
+function renderSpeak() {
+  const btn = $('ty-speak');
+  const lang = store.state.settings.targetLanguage || 'this language';
+  const voice = speech.canSpeak(targetCode());
+  btn.disabled = !voice;
+  btn.setAttribute('aria-pressed', String(voice && !!store.state.settings.typingSpeak));
+  btn.title = voice
+    ? 'Reads the word aloud when it is shown, or once you have answered'
+    : `No ${lang} voice is installed. On a Mac: System Settings → Accessibility → Spoken Content → System voice → Manage Voices.`;
+  const hear = document.getElementById('ty-say');
+  if (hear) hear.disabled = !voice;
 }
 
 function emptyState() {
@@ -237,6 +285,10 @@ function settle(ok) {
   const nextBtn = $('ty-next');
   nextBtn.hidden = false;
   nextBtn.focus();
+  /* The word is on screen now in either direction, so offer it — and read it
+     if it was the answer, since it has not been heard yet. */
+  $('ty-say').hidden = false;
+  if (shownSide === 'back') say();
 }
 
 /* The best of the verdicts against every accepted meaning. */
