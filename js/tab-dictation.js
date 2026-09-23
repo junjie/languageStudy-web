@@ -242,6 +242,9 @@ async function loadCard(entry) {
   $('dc-idle').hidden = true;
   $('dc-card').hidden = false;
 
+  /* Stop the last sentence before its URL goes, or a load still in flight
+     fails against a revoked blob. */
+  if (audio) { audio.pause(); audio.removeAttribute('src'); audio.load(); }
   if (audioUrl) { URL.revokeObjectURL(audioUrl); audioUrl = null; }
   /* With no server there is no URL to point at — the wav has to be pulled out
      of the folder and turned into a blob URL each time. */
