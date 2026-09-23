@@ -40,7 +40,8 @@ recognised and converted on the way in.
 
 **Typing** — one side of a card is shown and you type the other. Right word with
 the wrong accents gets its own verdict, with the offending characters marked,
-because that is a different mistake from not knowing the word.
+because that is a different mistake from not knowing the word — and the card
+goes on the Accents list to drill later.
 
 **Dictation** — a sentence is written around two or three of your weakest cards,
 spoken aloud, and diffed word by word against what you type. Needs an API key.
@@ -64,12 +65,12 @@ Sentences are banked on disk and replay for free forever.
 ```
 
 `front` is the word in the language you are learning, `back` is its meaning,
-`notes` is anything you want shown after an answer. `score`, `recent` and
-`last_seen` are written by the practice tabs; leave them out of a card you type
+`notes` is anything you want shown after an answer. `score`, `recent`,
+`last_seen` and `accent_slip` are written by the practice tabs; leave them out of a card you type
 by hand and they will be filled in. A bare `{"front": "…", "back": "…"}` is a
 perfectly good card.
 
-Those six are the whole schema; nothing else affects how the app behaves. Any
+Those seven are the whole schema; nothing else affects how the app behaves. Any
 other field you add is still carried through every save untouched, though, so
 you can keep a `"type"`, a tag, or a page reference alongside the cards and the
 app will leave them alone rather than deleting what it does not recognise.
@@ -89,6 +90,15 @@ kept. `score` is recomputed from it after every answer:
 
 With one exception: **a card with fewer than 8 answers can never score above
 2**. A word you have seen twice is not mastered, however well those two went.
+
+### Accents
+
+Getting the word right but its accents wrong still counts as a wrong answer,
+since the accents are the skill. It also sets `"accent_slip": true` on the
+card, and the **Accents** filter in Typing and Dictation drills only those
+cards. Typing asks for the word itself (never the meaning) while you are in
+that filter. The flag clears the next time you type the word exactly; a plain
+wrong answer leaves it alone. Cards without the flag simply leave it out.
 
 Practice draws cards at random weighted by `(6 − score)²`, so a very weak card
 comes up about 25 times as often as a mastered one.

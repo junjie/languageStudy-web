@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { normalize, words, base, contains, diff, compareAnswer, accentMarks } from '../js/text.js';
+import { containsLoosely, normalize, words, base, contains, diff, compareAnswer, accentMarks } from '../js/text.js';
 
 test('normalize keeps diacritics but drops case and punctuation', () => {
   assert.equal(normalize('  Tôi KHÔNG rành, đường!  '), 'tôi không rành đường');
@@ -71,4 +71,12 @@ test('accentMarks flags only the characters that differ', () => {
   const marks = accentMarks('cai tien', 'cải tiến');
   assert.equal(marks.length, 8);
   assert.deepEqual(marks.filter((m) => m.bad).map((m) => m.ch), ['a', 'e']);
+});
+
+test('containsLoosely hears a word whatever its accents', () => {
+  const heard = words('Tôi thấy nó rất tiện lời.');
+  assert.ok(!contains(heard, 'tiện lợi'));
+  assert.ok(containsLoosely(heard, 'tiện lợi'));
+  assert.ok(!containsLoosely(heard, 'tiện ích'));
+  assert.ok(containsLoosely(words('di dau'), 'đi đâu (to go)'));
 });

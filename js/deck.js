@@ -9,6 +9,8 @@
      score      1..5, recomputed from recent[] after every answer
      recent     the last 8 results, oldest first
      last_seen  ISO date of the last answer
+     accent_slip  true while the word's last miss was accents only: set by a
+                right-word-wrong-accents answer, cleared by an exact one
 
    encounters and correct are derived from recent[] on demand and never
    stored: a rolling window of 8 is the only history kept, so a second copy of
@@ -27,9 +29,18 @@ export function stats(card) {
 }
 
 /* The one implementation of the scoring rules. Both practice modes call it;
-   nothing else may reimplement it. */
-export function recordResult(card, ok) {
+   nothing else may reimplement it.
+
+   accentSlip marks an answer that had the right word with the wrong accents.
+   It still counts as wrong — accents are the skill — but it also flags the
+   card for the Accents filter, until the word is next typed exactly. A plain
+   wrong answer leaves the flag as it was, and so does a right answer typed in
+   the other language (typedFront false) — getting the meaning right says
+   nothing about the accents. */
+export function recordResult(card, ok, { accentSlip = false, typedFront = true } = {}) {
   const before = card.score;
+  if (accentSlip) card.accent_slip = true;
+  else if (ok && typedFront) delete card.accent_slip;
   card.recent = Array.isArray(card.recent) ? card.recent : [];
   card.recent.push(!!ok);
   while (card.recent.length > WINDOW) card.recent.shift();
@@ -74,6 +85,7 @@ export function pickWeighted(pool, n = 1) {
 }
 
 export function inScope(card, scope) {
+  if (scope === 'accents') return !!card.accent_slip;
   if (scope === 'weak') return (card.score || 1) <= 2;
   if (scope === 'developing') return (card.score || 1) <= 3;
   return true;
@@ -96,7 +108,7 @@ export function isDictatable(card) {
   return core.length >= 1 && core.length <= 6;
 }
 
-const KNOWN_KEYS = new Set(['front', 'back', 'notes', 'score', 'recent', 'last_seen']);
+const KNOWN_KEYS = new Set(['front', 'back', 'notes', 'score', 'recent', 'last_seen', 'accent_slip']);
 
 /* Fill in what a hand-written card leaves out, so bare front/back pairs pasted
    into the textarea work without ceremony.
@@ -116,6 +128,7 @@ export function normalizeCard(raw) {
   card.recent = Array.isArray(raw && raw.recent)
     ? raw.recent.slice(-WINDOW).map(Boolean) : [];
   card.last_seen = (raw && raw.last_seen) || null;
+  if (raw && raw.accent_slip === true) card.accent_slip = true;
 
   for (const key of Object.keys(raw || {})) {
     if (KNOWN_KEYS.has(key) || key === '__proto__') continue;
@@ -190,6 +203,7 @@ export function serializeDeck(cards) {
     o.score = c.score;
     o.recent = c.recent;
     if (c.last_seen) o.last_seen = c.last_seen;
+    if (c.accent_slip) o.accent_slip = true;
     /* Anything the user added themselves goes out last, so the keys this app
        writes stay in a predictable order above it. */
     for (const key of Object.keys(c)) {

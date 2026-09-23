@@ -40,6 +40,13 @@ export function base(w) {
     .replace(/đ/g, 'd');
 }
 
+/* True when the term appears once accents are ignored — the word was heard,
+   whether or not its marks were. */
+export function containsLoosely(haystack, term) {
+  const t = String(term || '').replace(/\([^)]*\)/g, ' ');
+  return contains(haystack.map(base), words(t).map(base).join(' '));
+}
+
 /* True when the term's whole word sequence appears verbatim — accents and all
    — somewhere in `haystack`. Parentheticals in the term are usage notes, not
    part of the string to match, so "đóng (học phí)" is matched on "đóng". */

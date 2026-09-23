@@ -166,6 +166,34 @@ test('an opened file is read as a deck, else as a watchlist', () => {
   assert.match(readDeckFile('[{"front":').error, /./);
 });
 
+test('an accent slip flags the card until it is typed exactly', () => {
+  const c = card();
+  recordResult(c, false, { accentSlip: true });
+  assert.equal(c.accent_slip, true);
+  assert.deepEqual(c.recent, [false], 'still scored as wrong');
+  assert.ok(inScope(c, 'accents'));
+
+  recordResult(c, false);
+  assert.equal(c.accent_slip, true, 'a plain miss leaves the flag alone');
+
+  recordResult(c, true, { typedFront: false });
+  assert.equal(c.accent_slip, true, 'getting the meaning right does not clear it');
+
+  recordResult(c, true);
+  assert.equal(c.accent_slip, undefined, 'an exact answer clears it');
+  assert.ok(!inScope(c, 'accents'));
+});
+
+test('accent_slip round-trips through a save, and only when set', () => {
+  const [flagged, clean] = parseDeck(serializeDeck([
+    { ...card(), front: 'a', accent_slip: true },
+    { ...card(), front: 'b' },
+  ])).cards;
+  assert.equal(flagged.accent_slip, true);
+  assert.ok(!('accent_slip' in clean));
+  assert.ok(!serializeDeck([clean]).includes('accent_slip'));
+});
+
 test('weighted picking draws without replacement and favours weak cards', () => {
   const pool = [card(), card(), card()].map((c, i) => ({ ...c, front: String(i) }));
   const drawn = pickWeighted(pool, 3);

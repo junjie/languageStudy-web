@@ -3,7 +3,8 @@
    An answer is right only if the accents are right — that is the whole skill
    being drilled. But "right word, wrong accents" is a different mistake from
    "wrong word", and a learner needs to be told which one they made, so the
-   near miss gets its own verdict and the offending characters are marked. */
+   near miss gets its own verdict and the offending characters are marked.
+   It also flags the card, and the Accents filter drills just those. */
 
 import * as store from './store.js';
 import { pickWeighted, inScope, recordResult, stats, SCORE_LABEL } from './deck.js';
@@ -62,6 +63,8 @@ function pool() {
 function renderPool() {
   const p = pool();
   $('ty-pool').textContent = `${p.length} of ${store.state.cards.length} cards in scope`;
+  const slips = store.state.cards.filter((c) => c.accent_slip).length;
+  $('ty-scope').querySelector('[data-scope="accents"]').textContent = slips ? `Accents (${slips})` : 'Accents';
 }
 
 /* ── the card ────────────────────────────────────────────────────────── */
@@ -78,7 +81,10 @@ function next() {
   current = pickWeighted(p, 1)[0];
   answered = false;
   const dir = store.state.settings.typingDirection;
-  shownSide = dir === 'random' ? (Math.random() < 0.5 ? 'front' : 'back') : (dir === 'back-to-front' ? 'back' : 'front');
+  /* Accents live on the front, so that is always the side asked for when
+     drilling them, whatever the direction setting says. */
+  shownSide = scope === 'accents' ? 'back'
+    : dir === 'random' ? (Math.random() < 0.5 ? 'front' : 'back') : (dir === 'back-to-front' ? 'back' : 'front');
 
   const shown = current[shownSide];
   const askFor = shownSide === 'front' ? 'the meaning' : store.state.settings.targetLanguage;
@@ -90,6 +96,7 @@ function next() {
         <span class="score-chip"><i class="score-dot s-${current.score}"></i>${SCORE_LABEL[current.score]}</span>
         <span>${correct}/${encounters || 0} recent</span>
         ${squares(current.recent)}
+        ${current.accent_slip ? '<span class="is-warn">accents slipped last time</span>' : ''}
         <span class="spacer"></span>
         <span>${current.last_seen ? 'last seen ' + current.last_seen : 'new card'}</span>
       </div>
@@ -128,6 +135,10 @@ function emptyState() {
     return `<div class="gate"><h3>No cards yet</h3>
       <p>Add some in the Flashcards tab — it is a plain JSON list, and there is a three-card example already in it to copy the shape from.</p></div>`;
   }
+  if (scope === 'accents') {
+    return `<div class="gate"><h3>No accent slips</h3>
+      <p>A word lands here when you type it with the wrong accents, and leaves once you type it exactly. Nothing is waiting right now.</p></div>`;
+  }
   return `<div class="gate"><h3>Nothing in scope</h3>
     <p>All ${total} cards are stronger than this filter allows. Widen it to <strong>All</strong>, or practise more to move cards down.</p></div>`;
 }
@@ -153,7 +164,10 @@ function check() {
   const verdict = compareAnswer(typed, expected);
   const ok = verdict === 'exact';
 
-  const move = recordResult(current, ok);
+  /* Only a slip in the language being learnt counts: an accent missed while
+     typing the meaning is not what this list is for. */
+  const accentSlip = verdict === 'accent' && shownSide === 'back';
+  const move = recordResult(current, ok, { accentSlip, typedFront: shownSide === 'back' });
   tally.total++;
   if (ok) tally.right++; else tally.wrong++;
   $('ty-total').textContent = tally.total;

@@ -13,7 +13,7 @@
 import * as store from './store.js';
 import * as storage from './storage.js';
 import { isDictatable, inScope, pickWeighted, recordResult, SCORE_LABEL } from './deck.js';
-import { words, contains, diff, escapeHtml, scoreMark } from './text.js';
+import { words, contains, containsLoosely, diff, escapeHtml, scoreMark } from './text.js';
 import { sidecarText, formatWait, QuotaError } from './gemini.js';
 import { describe } from './tab-settings.js';
 
@@ -134,6 +134,8 @@ function pool() {
 }
 
 function renderBankInfo() {
+  const slips = store.state.cards.filter((c) => c.accent_slip && isDictatable(c)).length;
+  $('dc-scope').querySelector('[data-scope="accents"]').textContent = slips ? `Accents (${slips})` : 'Accents';
   const dictatable = store.state.cards.filter(isDictatable).length;
   const p = pool().length;
   $('dc-bank').textContent =
@@ -167,6 +169,10 @@ function renderQuota() {
 async function generate() {
   if (busy) return;
   const p = pool();
+  if (!p.length && scope === 'accents') {
+    showError('No accent slips to build a sentence around. A word lands in Accents when you get it right with the wrong accents, and leaves once you type it exactly.');
+    return;
+  }
   if (!p.length) {
     showError(store.state.cards.length
       ? 'No cards in this scope can be used for dictation. Widen the filter, or check the Flashcards tab — entries like "X vs Y" or "verb + noun" have no single phrase to listen for, so they are skipped.'
@@ -216,6 +222,14 @@ function fromBank() {
 
   const wanted = new Set(pool().map((c) => c.front));
   const scoped = bank.filter((e) => (e.terms || []).some((t) => wanted.has(t)));
+  /* Any old sentence is fine for the wider filters, but Accents means these
+     words — better to say none are banked than to play something else. */
+  if (scope === 'accents' && !scoped.length) {
+    idle(wanted.size
+      ? 'No banked sentence uses your accent-slip words yet. Write a new one to drill them.'
+      : 'No accent slips right now — nothing to drill.');
+    return;
+  }
   let candidates = (scoped.length ? scoped : bank).filter((e) => !heard.has(e.id));
   if (!candidates.length) {
     /* Been through everything in scope this session; start over rather than
@@ -382,12 +396,13 @@ function scoreTerms(usrWords) {
     }
 
     const ok = contains(usrWords, card.front);
+    const accentSlip = !ok && containsLoosely(usrWords, card.front);
     chips.push(`<span class="chip ${ok ? 'chip--ok' : 'chip--bad'}">${escapeHtml(card.front)}</span>`);
-    const move = recordResult(card, ok);
+    const move = recordResult(card, ok, { accentSlip });
     changed = true;
     const moved = move.before !== move.after
       ? ` ${scoreMark(move.before)} → ${scoreMark(move.after, SCORE_LABEL[move.after].toLowerCase())}` : '';
-    rows.push(`<div>${ok ? '✓' : '✗'} ${escapeHtml(card.front)} (${move.correct}/${move.encounters})${moved}</div>`);
+    rows.push(`<div>${ok ? '✓' : '✗'} ${escapeHtml(card.front)}${accentSlip ? ' — right word, wrong accents' : ''} (${move.correct}/${move.encounters})${moved}</div>`);
   }
 
   $('dc-terms').innerHTML = chips.join('');
