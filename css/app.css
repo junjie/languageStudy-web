@@ -210,7 +210,6 @@ main { padding: 0 0 96px; }
 .note {
   font-size: 12.5px;
   color: var(--fg-muted);
-  max-width: 68ch;
 }
 .note strong { color: var(--fg); font-weight: 600; }
 .note code, code {
@@ -360,6 +359,116 @@ textarea { resize: vertical; font: 13px/1.6 var(--mono); }
 .s-4 { background: var(--s4); }
 .s-5 { background: var(--s5); }
 
+/* ── the model catalogue ──────────────────────────────────────── */
+
+/* A ruled table, built from the same hairlines as everything else: an id that
+   takes whatever width is left, two narrow number columns, and the remove
+   button. The header row is labels only, so it carries no border of its own
+   and sits directly on the first row's rule. */
+.model-list {
+  border: 1px solid var(--line);
+}
+.model-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 96px 96px 30px;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+}
+.model-row:last-child { border-bottom: 0; }
+/* A grid item will not shrink below the intrinsic width of an <input>, which
+   for a number field is wider than the column it is given — so every cell is
+   told it may. */
+.model-row > * { min-width: 0; }
+.model-row input[type='text'] { font-family: var(--mono); font-size: 12.5px; }
+.model-row input[type='number'] { text-align: right; }
+/* The column headings carry these two on a wide screen, so the labels beside
+   the fields would only repeat them. On a phone the headings are gone and
+   these are the only thing saying which number is which. */
+.model-rpm > span, .model-rpd > span { display: none; }
+
+.model-head {
+  padding-top: 7px;
+  padding-bottom: 6px;
+  background: var(--surface-hi);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--fg-dim);
+}
+.model-head span:nth-child(2), .model-head span:nth-child(3) { text-align: right; }
+
+/* Which jobs this model is doing, under its id. It is the one thing that makes
+   a shared model legible at a glance — and the reason a row cannot be removed. */
+.model-jobs {
+  display: block;
+  font-size: 11px;
+  color: var(--fg-dim);
+  margin-top: 3px;
+  min-height: 14px;
+}
+.model-jobs.is-idle { color: var(--fg-dim); font-style: italic; }
+
+.model-drop {
+  background: none;
+  border: 1px solid transparent;
+  color: var(--fg-dim);
+  font: 15px/1 var(--sans);
+  padding: 5px 0;
+  cursor: pointer;
+}
+.model-drop:hover:not(:disabled) { color: var(--bad); border-color: var(--bad); }
+.model-drop:disabled { opacity: 0.3; cursor: not-allowed; }
+
+/* ── what the budget has been spent on ────────────────────────── */
+
+.usage {
+  border: 1px solid var(--line);
+  font: 12px/1.5 var(--mono);
+}
+.usage-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  align-items: baseline;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--line);
+}
+.usage-row:last-child { border-bottom: 0; }
+.usage-id { color: var(--fg-warm); flex: 1 1 200px; min-width: 0; overflow-wrap: anywhere; }
+.usage-num { color: var(--fg-muted); }
+.usage-row.is-blocked .usage-id { color: var(--bad); }
+.usage-jobs { color: var(--fg-dim); font-family: var(--sans); font-size: 11px; }
+
+@media (max-width: 560px) {
+  /* The numbers keep their width; a model id is long enough that squeezing it
+     into what is left would show four characters of it. So it takes the first
+     line whole and the two limits sit under it, pushed right against the
+     remove button — which is where the header would have put them anyway. */
+  .model-row {
+    grid-template-columns: minmax(0, 1fr) 76px 76px 26px;
+    column-gap: 6px;
+    row-gap: 6px;
+  }
+  .model-id { grid-column: 1 / -1; grid-row: 1; }
+  .model-rpm { grid-column: 2; grid-row: 2; }
+  .model-rpd { grid-column: 3; grid-row: 2; }
+  .model-drop { grid-column: 4; grid-row: 2; align-self: end; }
+  .model-head { display: none; }
+  .model-rpm > span, .model-rpd > span {
+    display: block;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    color: var(--fg-dim);
+    text-align: right;
+    margin-bottom: 4px;
+  }
+}
+
 /* ── voices ───────────────────────────────────────────────────── */
 
 .voice-grid {
@@ -383,6 +492,68 @@ textarea { resize: vertical; font: 13px/1.6 var(--mono); }
 .voice:hover { background: var(--surface-hi); }
 .voice input { width: auto; accent-color: var(--accent); }
 .voice em { font-style: normal; color: var(--fg-dim); font-size: 11px; margin-left: auto; }
+
+/* ── the deck menu ────────────────────────────────────────────── */
+
+/* A <select> can hold one answer; this control holds two — which decks are in
+   practice, and which one the editor is showing — so it is built by hand. */
+.deck-picker { position: relative; }
+.deck-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 12px;
+  background: var(--bg-sunken);
+  border: 1px solid var(--line-strong);
+  color: var(--fg);
+  font: inherit;
+  font-size: 13.5px;
+  text-align: left;
+  cursor: pointer;
+}
+.deck-toggle:hover:not(:disabled) { border-color: var(--fg-dim); }
+.deck-toggle[aria-expanded='true'] { border-color: var(--accent); }
+.deck-toggle:disabled { opacity: .5; cursor: not-allowed; }
+.deck-toggle-name { font-family: var(--mono); color: var(--fg-warm); }
+.deck-toggle-sub { color: var(--fg-dim); font-size: 11.5px; }
+.deck-toggle-caret { margin-left: auto; color: var(--fg-dim); }
+
+.deck-menu {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 3px);
+  left: 0;
+  right: 0;
+  max-height: 260px;
+  overflow: auto;
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, .35);
+}
+.deck-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 2px 10px 2px 11px;
+  border-bottom: 1px solid var(--line);
+}
+.deck-row:last-child { border-bottom: 0; }
+.deck-row.is-open { background: var(--surface-hi); }
+.deck-row input { width: auto; flex: none; accent-color: var(--accent); cursor: pointer; }
+.deck-name {
+  flex: 1 1 auto;
+  padding: 7px 4px;
+  background: none;
+  border: 0;
+  color: var(--fg);
+  font: 13px/1.4 var(--mono);
+  text-align: left;
+  cursor: pointer;
+}
+.deck-name:hover { color: var(--accent); }
+.deck-row.is-open .deck-name { color: var(--fg-warm); }
+.deck-count { color: var(--fg-dim); font-size: 11px; white-space: nowrap; }
 
 /* ── the JSON deck editor ─────────────────────────────────────── */
 
@@ -625,6 +796,82 @@ textarea { resize: vertical; font: 13px/1.6 var(--mono); }
   vertical-align: -1px;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── shadowing ────────────────────────────────────────────────── */
+
+/* A smaller play button than the dictation one: there are up to twenty of
+   them on a set, two to a line, and the full-size circle would be the only
+   thing on the screen. */
+.play--sm { width: 34px; height: 34px; font-size: 13px; }
+/* "Play your take" sits there from the moment a line is drawn, so it has to
+   look inert until there is a take to play. */
+.play:disabled { opacity: 0.3; cursor: not-allowed; }
+
+.sh-row {
+  border: 1px solid var(--line);
+  background: var(--bg-sunken);
+  padding: 10px 12px;
+}
+.sh-row + .sh-row { margin-top: 8px; }
+/* A line with a take on it reads as done at a glance, without a tick column
+   that would be empty for most of the set most of the time. */
+.sh-row.is-done { border-left: 2px solid var(--ok); }
+
+.sh-main { display: flex; gap: 12px; align-items: center; }
+.sh-text { flex: 1 1 200px; min-width: 0; }
+.sh-line {
+  font-size: 15px;
+  color: var(--fg-warm);
+  overflow-wrap: anywhere;
+}
+.sh-gloss { font-size: 12px; color: var(--fg-dim); margin-top: 3px; overflow-wrap: anywhere; }
+.sh-acts { display: flex; gap: 8px; align-items: center; flex: 0 0 auto; }
+.sh-acts .btn { min-width: 84px; }
+
+/* Recording is the one state on this page worth making impossible to miss —
+   a microphone you think is off is how a take gets lost. */
+.is-rec { animation: rec-pulse 1.1s ease-in-out infinite; }
+@keyframes rec-pulse { 50% { opacity: 0.55; } }
+
+.sh-comment {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--fg-muted);
+}
+
+.sh-meta { font: 11px/1.5 var(--mono); color: var(--fg-dim); }
+
+/* .notes-box keeps pre-wrap so a dictation sentence shows exactly as written.
+   These boxes hold ordinary prose in real elements, so the newlines between
+   those elements are markup, not content. */
+.sh-box { white-space: normal; }
+.sh-box p { font-size: 13px; line-height: 1.65; color: var(--fg-muted); }
+
+.sh-hist { display: flex; gap: 8px; align-items: stretch; }
+.sh-hist + .sh-hist { margin-top: 6px; }
+.sh-hist-open {
+  flex: 1 1 auto;
+  text-align: left;
+  border: 1px solid var(--line);
+  background: var(--bg-sunken);
+  color: inherit;
+  padding: 8px 10px;
+  cursor: pointer;
+  display: block;
+  min-width: 0;
+}
+.sh-hist-open:hover { border-color: var(--fg-dim); background: var(--surface-hi); }
+.sh-hist-id { font: 12.5px/1.5 var(--mono); color: var(--fg-warm); display: block; }
+.sh-hist-sub { font-size: 11.5px; color: var(--fg-dim); display: block; margin-top: 2px; }
+
+@media (max-width: 560px) {
+  .sh-main { flex-wrap: wrap; }
+  .sh-text { flex: 1 1 100%; order: -1; }
+  .sh-acts { margin-left: auto; }
+}
 
 /* ── empty / gate states ──────────────────────────────────────── */
 

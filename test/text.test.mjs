@@ -1,6 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { compareMeaning, containsLoosely, normalize, words, base, contains, diff, compareAnswer, accentMarks } from '../js/text.js';
+import {
+  normalize, words, base, contains, containsLoosely, diff,
+  compareAnswer, compareMeaning, meaningVariants, accentMarks,
+} from '../js/text.js';
 
 test('normalize keeps diacritics but drops case and punctuation', () => {
   assert.equal(normalize('  Tôi KHÔNG rành, đường!  '), 'tôi không rành đường');
@@ -77,8 +80,8 @@ test('containsLoosely hears a word whatever its accents', () => {
   const heard = words('Tôi thấy nó rất tiện lời.');
   assert.ok(!contains(heard, 'tiện lợi'));
   assert.ok(containsLoosely(heard, 'tiện lợi'));
-  assert.ok(!containsLoosely(heard, 'tiện ích'));
-  assert.ok(containsLoosely(words('di dau'), 'đi đâu (to go)'));
+  assert.ok(!containsLoosely(heard, 'tiện ích'), 'a different word is still a different word');
+  assert.ok(containsLoosely(words('di dau'), 'đi đâu (to go)'), 'bracketed notes are not matched on');
 });
 
 test('meanings accept one semicolon part, drop bracketed notes and an optional "to"', () => {
@@ -100,4 +103,17 @@ test('meanings accept one semicolon part, drop bracketed notes and an optional "
   for (const [typed, meaning, want] of cases) {
     assert.equal(compareMeaning(typed, meaning), want, `${JSON.stringify(typed)} vs ${JSON.stringify(meaning)}`);
   }
+});
+
+test('a meaning typed with the wrong accents is an accent miss, not a wrong one', () => {
+  assert.equal(compareMeaning('cafe', 'café'), 'accent');
+  assert.equal(compareMeaning('café', 'café'), 'exact');
+});
+
+test('meaningVariants never yields an empty or duplicate reading', () => {
+  const v = meaningVariants('to handle; to deal with (penalise)');
+  assert.deepEqual(v, [...new Set(v)], 'no duplicates');
+  assert.ok(v.every((x) => x.trim()), 'nothing blank');
+  assert.ok(v.includes('to handle'));
+  assert.deepEqual(meaningVariants('   '), [], 'nothing to read');
 });

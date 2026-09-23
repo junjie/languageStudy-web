@@ -41,7 +41,8 @@ export function base(w) {
 }
 
 /* True when the term appears once accents are ignored — the word was heard,
-   whether or not its marks were. */
+   whether or not its marks were. Built on contains(), so it agrees with it on
+   everything except the accents. */
 export function containsLoosely(haystack, term) {
   const t = String(term || '').replace(/\([^)]*\)/g, ' ');
   return contains(haystack.map(base), words(t).map(base).join(' '));
@@ -134,16 +135,18 @@ export function compareAnswer(typed, expected) {
   return 'wrong';
 }
 
-/* A meaning is judged more loosely than a word. A card's back is written for
-   reading, not for typing back verbatim, and in practice it is written like
-   "to go back; to return" or "to deal with (penalise)". So, for meanings
+/* A meaning is judged more loosely than a word, and deliberately so. A card's
+   back is written to be read, not typed back verbatim — in practice it looks
+   like "to go back; to return" or "to deal with (penalise)". So, for meanings
    only:
+
      - each part between semicolons is a meaning on its own;
-     - a bracketed note is context, and can be left out;
+     - a bracketed note is context, and may be left out;
      - a leading "to" on a verb is optional.
-   Commas are deliberately NOT split on: in a sentence or a pattern they are
-   grammar ("If I were him, I'd have quit"), and accepting one half would be
-   accepting a wrong answer. */
+
+   Commas are deliberately NOT split on. In a sentence or a pattern a comma is
+   grammar — "If I were him, I'd have quit" — and accepting one half of that
+   would be accepting a wrong answer. */
 export function meaningVariants(meaning) {
   const noNotes = (s) => String(s).replace(/\([^)]*\)/g, ' ');
   const parts = String(meaning || '').split(';');
@@ -156,7 +159,8 @@ function dropTo(s) {
 }
 
 /* 'exact', 'accent' or 'wrong', the best over every way of reading the
-   meaning. Same three verdicts as compareAnswer, so the UI treats both alike. */
+   meaning. The same three verdicts compareAnswer gives, so the UI can treat a
+   typed meaning and a typed word alike. */
 export function compareMeaning(typed, meaning) {
   const t = dropTo(typed);
   if (!t) return 'wrong';

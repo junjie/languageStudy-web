@@ -12,7 +12,8 @@
    that a retry storm would eat a day's budget in a minute. */
 
 import { words, contains } from './text.js';
-import { VOICE_NAMES } from './defaults.js';
+import { VOICE_NAMES, modelLimits } from './defaults.js';
+import { buildGradingParts, readGrading, attachableClips } from './shadowing.js';
 
 const ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent';
 const MINUTE = 60;
@@ -220,19 +221,42 @@ export class RateLimiter {
     };
   }
 
+  /* canGenerate, retryAfter and cardsLeftToday are all about making one
+     dictation card, which takes a text call and a speech call. Shadowing is
+     reported alongside but deliberately left out of them: it spends neither of
+     those models, and a shadowing budget that had run down must not stop you
+     writing a sentence. */
   report(settings) {
-    const l = settings.limits;
-    const text = this.usage(settings.textModel, l.textRpm, l.textRpd);
-    const tts = this.usage(settings.ttsModel, l.ttsRpm, l.ttsRpd);
-    const lefts = [text.leftDay, tts.leftDay].filter((n) => n !== null);
+    const text = this.usageOf(settings, settings.textModel);
+    const tts = this.usageOf(settings, settings.ttsModel);
+    const shadow = this.usageOf(settings, settings.shadowModel);
     return {
       text,
       tts,
+      shadow,
       retryAfter: Math.max(text.retryAfter, tts.retryAfter),
       canGenerate: text.retryAfter <= 0 && tts.retryAfter <= 0,
-      cardsLeftToday: lefts.length ? Math.min(...lefts) : null,
+      cardsLeftToday: cardsLeft(settings, text, tts),
     };
   }
+
+  /* usage() for a model named in the settings, at the limits the catalogue
+     gives that model. */
+  usageOf(settings, model) {
+    const { rpm, rpd } = modelLimits(settings, model);
+    return this.usage(model, rpm, rpd);
+  }
+}
+
+/* How many more cards today's budget holds. Normally the scarcer of the two
+   models, but one model may be given both jobs — and then each card spends two
+   of its calls, so what is left buys half as many. */
+function cardsLeft(settings, text, tts) {
+  if (settings.textModel === settings.ttsModel) {
+    return text.leftDay === null ? null : Math.floor(text.leftDay / 2);
+  }
+  const lefts = [text.leftDay, tts.leftDay].filter((n) => n !== null);
+  return lefts.length ? Math.min(...lefts) : null;
 }
 
 export function formatWait(seconds) {
@@ -359,10 +383,11 @@ export function createClient({ getSettings, getApiKey, limiter }) {
   /* One text call, one token, to prove a key works. */
   async function testKey() {
     const s = getSettings();
+    const l = modelLimits(s, s.textModel);
     const data = await call(s.textModel, {
       contents: [{ parts: [{ text: 'Reply with the single word: ok' }] }],
       generationConfig: { maxOutputTokens: 8 },
-    }, s.limits.textRpm, s.limits.textRpd);
+    }, l.rpm, l.rpd);
     return firstText(data).slice(0, 40);
   }
 
@@ -370,21 +395,23 @@ export function createClient({ getSettings, getApiKey, limiter }) {
      available: a sentence nothing can speak is a wasted text call. */
   function preflight() {
     const s = getSettings();
-    const textWhy = limiter.why(s.textModel, s.limits.textRpm, s.limits.textRpd);
-    const ttsWhy = limiter.why(s.ttsModel, s.limits.ttsRpm, s.limits.ttsRpd);
-    const why = textWhy || ttsWhy;
+    const text = modelLimits(s, s.textModel);
+    const tts = modelLimits(s, s.ttsModel);
+    const why = limiter.why(s.textModel, text.rpm, text.rpd)
+      || limiter.why(s.ttsModel, tts.rpm, tts.rpd);
     if (why) throw new QuotaError(why, limiter.report(s).retryAfter);
   }
 
   async function writeSentence(terms) {
     const s = getSettings();
     const prompt = fillTemplate(s.prompts.sentence, sentenceVars(s, terms));
+    const l = modelLimits(s, s.textModel);
     const problems = [];
     for (let attempt = 0; attempt < 3; attempt++) {
       const data = await call(s.textModel, {
         contents: [{ parts: [{ text: prompt }] }],
         generationConfig: { temperature: 1.0, maxOutputTokens: 2048 },
-      }, s.limits.textRpm, s.limits.textRpd, attempt ? 75 : 0);
+      }, l.rpm, l.rpd, attempt ? 75 : 0);
       const { target, english } = parseSentence(firstText(data));
       const why = sentenceProblem(target, terms, s);
       if (!why) return { sentence: target, english };
@@ -396,6 +423,7 @@ export function createClient({ getSettings, getApiKey, limiter }) {
   async function speak(sentence, voice) {
     const s = getSettings();
     const text = fillTemplate(s.prompts.speech, { sentence });
+    const l = modelLimits(s, s.ttsModel);
     for (let attempt = 0; attempt < 2; attempt++) {
       const data = await call(s.ttsModel, {
         contents: [{ parts: [{ text }] }],
@@ -403,7 +431,7 @@ export function createClient({ getSettings, getApiKey, limiter }) {
           responseModalities: ['AUDIO'],
           speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: voice } } },
         },
-      }, s.limits.ttsRpm, s.limits.ttsRpd, attempt ? 75 : 0);
+      }, l.rpm, l.rpd, attempt ? 75 : 0);
 
       const blocked = (data.promptFeedback || {}).blockReason;
       if (!blocked) return firstAudio(data);
@@ -417,8 +445,16 @@ export function createClient({ getSettings, getApiKey, limiter }) {
   }
 
   /* One card: write it, check it, speak it. The voice is drawn once, so a
-     retry does not change speaker mid-sentence. */
-  async function generateCard(terms, manifest) {
+     retry does not change speaker mid-sentence.
+
+     `deck` is the single deck all the terms came from. It is recorded on the
+     entry, along with the difficulty the sentence was written at, because both
+     are properties of this audio file forever: the deck decides whether the
+     sentence may come back in a later session, and the difficulty is the one
+     thing about a banked sentence that cannot be re-read from the settings —
+     change the learner level tomorrow and yesterday's audio is still what it
+     always was. */
+  async function generateCard(terms, manifest, deck) {
     preflight();
     const s = getSettings();
     const voice = pickVoice(s);
@@ -434,6 +470,8 @@ export function createClient({ getSettings, getApiKey, limiter }) {
       sentence,
       english,
       terms: terms.map((t) => t.front),
+      deck: deck || '',
+      difficulty: s.learnerLevel || '',
       language: s.targetLanguage,
       text_model: s.textModel,
       tts_model: s.ttsModel,
@@ -444,7 +482,89 @@ export function createClient({ getSettings, getApiKey, limiter }) {
     return { entry, wav, sidecar: sidecarText(entry) };
   }
 
-  return { call, testKey, generateCard, preflight };
+  /* ── shadowing ─────────────────────────────────────────────────────── */
+
+  /* Reasoning-capable Flash models think by default, and the thinking tokens
+     come out of the SAME budget as the visible answer — so the reasoning can
+     eat the whole maxOutputTokens and cut the JSON off mid-object, leaving
+     nothing parseable. thinkingConfig turns it off, but support and valid
+     range vary by model, and an alias can start pointing somewhere new with no
+     change on our side.
+
+     So: try with the field, and if the API rejects the request because of it,
+     retry once without and REMEMBER that for the rest of the page's life.
+     Without the memory every later call pays for two real requests and
+     silently doubles what the budget is spending. */
+  let thinkingRejected = false;
+
+  function looksLikeThinkingRejection(err) {
+    return err instanceof GeminiError
+      && /HTTP 400/.test(err.message)
+      && /thinking/i.test(err.message);
+  }
+
+  /* One call, carrying the reference text of every recorded line and the
+     learner's recording of it. Returns normalised feedback, or throws — a
+     reply that cannot be read is a failure, never a half grade, because a
+     half grade is indistinguishable from a finished one to whoever reads it. */
+  async function gradeShadowing({ items, clips, focus, itemCount }) {
+    const s = getSettings();
+    const attach = attachableClips(clips);
+    if (!attach.length) throw new GeminiError('There are no recordings to send.');
+
+    const system = fillTemplate(s.prompts.shadowing, {
+      language: s.targetLanguage,
+      count: itemCount,
+      /* The sounds clause hangs off the end of a sentence that reads properly
+         without it, so an empty setting is a legal state rather than a
+         dangling colon. */
+      sounds: s.shadowSounds && s.shadowSounds.trim()
+        ? ` ${s.targetLanguage} sounds worth listening for include ${s.shadowSounds.trim()}.`
+        : '',
+    });
+
+    const userParts = buildGradingParts({
+      items, clips: attach, focus, language: s.targetLanguage, itemCount,
+    });
+
+    const body = () => ({
+      system_instruction: { parts: [{ text: system }] },
+      contents: [{ parts: userParts }],
+      generationConfig: {
+        temperature: 0.3,
+        maxOutputTokens: 16384,
+        ...(thinkingRejected ? {} : { thinkingConfig: { thinkingBudget: 0 } }),
+      },
+    });
+
+    const l = modelLimits(s, s.shadowModel);
+    let data;
+    try {
+      data = await call(s.shadowModel, body(), l.rpm, l.rpd);
+    } catch (e) {
+      if (!looksLikeThinkingRejection(e) || thinkingRejected) throw e;
+      thinkingRejected = true;
+      data = await call(s.shadowModel, body(), l.rpm, l.rpd);
+    }
+
+    const graded = readGrading(firstText(data), itemCount);
+    if (!graded) {
+      throw new GeminiError(
+        `${s.shadowModel} replied with something that could not be read as feedback. `
+        + 'Nothing was saved — your recordings are still here, so you can ask again.');
+    }
+    return { ...graded, model: s.shadowModel, attached: attach.length };
+  }
+
+  /* Refuses before spending, the way preflight() does for a dictation card. */
+  function shadowPreflight() {
+    const s = getSettings();
+    const l = modelLimits(s, s.shadowModel);
+    const why = limiter.why(s.shadowModel, l.rpm, l.rpd);
+    if (why) throw new QuotaError(why, limiter.waitFor(s.shadowModel, l.rpm, l.rpd));
+  }
+
+  return { call, testKey, generateCard, preflight, gradeShadowing, shadowPreflight };
 }
 
 /* Duplicates what the manifest holds, so a stray .wav is never an orphan. */
@@ -453,6 +573,8 @@ export function sidecarText(entry) {
     entry.sentence,
     entry.english,
     `[terms] ${entry.terms.join(', ')}`,
+    entry.deck ? `[deck] ${entry.deck}` : '',
+    entry.difficulty ? `[difficulty] ${entry.difficulty}` : '',
     `[language] ${entry.language}`,
     `[voice] ${entry.voice}`,
     `[created] ${entry.created}`,

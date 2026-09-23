@@ -1,221 +1,219 @@
-/* Where the data lives.
+/* Where the app keeps its state.
 
-   There is no server and no database. Everything the app remembers lives in a
-   folder the user picks, reached through the File System Access API:
+   There is no server and no database. Everything the app remembers lives in
+   one directory, laid out the same way whichever directory that turns out to
+   be:
 
-     settings.json        models, limits, voices, language, prompts
+     settings.json        the model catalogue, which model does which job,
+                          voices, language, prompts
      decks/<slug>.json    one deck per file
      audio/manifest.json  the dictation bank index
      audio/quota.json     the rolling API call budget
      audio/<id>.wav|.txt  generated speech and its transcript
+     shadowing/manifest.json   the shadowing session index
+     shadowing/<id>.json       one session: its lines and its feedback
+     shadowing/<id>_<n>.webm   your own voice, one file per line
+
+   Two kinds of directory can hold that layout:
+
+     'folder'    a folder on disk the user picked — see fs-folder.js
+     'browser'   the origin private file system — see fs-opfs.js
+
+   A folder is the better store in every way that matters, but it takes a
+   click, and until that click has happened there is still a session's work to
+   keep. So browser storage is the floor rather than a last resort for the
+   browsers that have nothing else: the app saves there from the first
+   keystroke, and a folder, once chosen, takes over and is copied into.
+
+   Chromium has both. Firefox and Safari have browser storage only, and no
+   picker to offer. Exactly one store is live at a time — writes must never be
+   split across two — which is what copyFromBrowser() is for.
+
+   Both kinds are FileSystemDirectoryHandles, so every file operation below is
+   the same code either way. The backend modules differ only in how the root
+   handle is got and what may be assumed about keeping it.
 
    The API key is the one thing that never goes in here — it stays in
    localStorage, so pointing the app at a folder that happens to be a git clone
-   cannot leak it.
+   cannot leak it. */
 
-   A directory handle survives a reload but its permission does not always, and
-   requestPermission() only works from a user gesture. So restore() reports
-   'needs-permission' and the UI turns that into a button the user clicks.
+import * as folder from './fs-folder.js';
+import * as opfs from './fs-opfs.js';
 
-   A browser without that API (Safari, Firefox), or a user who never picks a
-   folder, gets the same layout kept in IndexedDB instead: one record per file,
-   keyed by the path it would have in the folder. Everything above the paths is
-   identical, so a backup zip of either one unzips into a folder the other can
-   use. */
-
-const DB_NAME = 'language-study-web';
-const HANDLES = 'handles';
-const FILES = 'files';
-const HANDLE_KEY = 'dataDirHandle';
 const KEY_STORAGE = 'lsw.apiKey';
 
-export const SUPPORTS_FS = typeof window !== 'undefined' && 'showDirectoryPicker' in window;
+export const SUPPORTS_FOLDER = folder.SUPPORTED;
+export const SUPPORTS_BROWSER = opfs.SUPPORTED;
 
-/* ── the handle, kept in IndexedDB because handles are structured-cloneable
-      and localStorage only holds strings ──────────────────────────────── */
+/* ── the live store ──────────────────────────────────────────────────── */
 
-function idbOpen() {
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, 2);
-    req.onupgradeneeded = () => {
-      for (const name of [HANDLES, FILES]) {
-        if (!req.result.objectStoreNames.contains(name)) req.result.createObjectStore(name);
-      }
-    };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
-}
-
-async function idbRun(store, mode, fn) {
-  const db = await idbOpen();
-  try {
-    return await new Promise((resolve, reject) => {
-      const tx = db.transaction(store, mode);
-      const req = fn(tx.objectStore(store));
-      tx.oncomplete = () => resolve(req ? req.result : undefined);
-      tx.onerror = () => reject(tx.error);
-      tx.onabort = () => reject(tx.error);
-    });
-  } finally {
-    db.close();
-  }
-}
-
-const idbPut = (store, key, value) => idbRun(store, 'readwrite', (s) => { s.put(value, key); });
-const idbGet = (store, key) => idbRun(store, 'readonly', (s) => s.get(key));
-const idbDel = (store, key) => idbRun(store, 'readwrite', (s) => { s.delete(key); });
-const idbKeys = (store) => idbRun(store, 'readonly', (s) => s.getAllKeys());
-
-/* ── the folder ──────────────────────────────────────────────────────── */
-
-let dirHandle = null;
-/* Set when a folder write fails. Until the user picks a folder again or
-   disconnects, writes fail too rather than quietly landing in browser storage
-   instead — half the answers in one place and half in the other is worse than
-   a clear "reconnect". */
+let root = null;
+let kind = null;
+let rootName = '';
+let persisted = false;
+/* Set when a folder write failed and the handle was dropped. It changes
+   nothing about how the app saves — it is the difference between "you never
+   chose a folder" and "the folder you chose has gone", which are different
+   things to tell someone. */
 let lost = false;
-let browserReady = false;
 const listeners = new Set();
 
-export function onFolderChange(fn) {
+export function onStoreChange(fn) {
   listeners.add(fn);
   return () => listeners.delete(fn);
 }
 
 function announce() {
   for (const fn of listeners) {
-    try { fn(folderName()); } catch (e) { console.error(e); }
+    try { fn(kind); } catch (e) { console.error(e); }
   }
 }
 
 export function isConnected() {
-  return !!dirHandle;
+  return !!root;
 }
 
-export function folderName() {
-  return dirHandle ? dirHandle.name : null;
+/* 'folder', 'browser', or null when nothing is being saved. */
+export function backend() {
+  return kind;
 }
 
-/* 'folder', 'browser', 'lost' (a folder write failed), or null (nothing
-   persists: IndexedDB is unavailable, which some private windows still do). */
-export function where() {
-  if (dirHandle) return 'folder';
-  if (lost) return 'lost';
-  return browserReady ? 'browser' : null;
+/* What to call the place, for the line of UI that says where saving goes. */
+export function label() {
+  if (kind === 'folder') return rootName;
+  if (kind === 'browser') return 'this browser';
+  return null;
 }
 
-export async function connect() {
-  const handle = await window.showDirectoryPicker({ mode: 'readwrite', id: 'language-study-data' });
-  dirHandle = handle;
+/* True when a folder was being written to and the handle went stale. */
+export function lostFolder() {
+  return lost;
+}
+
+/* Only meaningful for browser storage: whether it is exempt from eviction. */
+export function isPersisted() {
+  return kind !== 'browser' || persisted;
+}
+
+async function adopt(k, handle) {
+  root = handle;
+  kind = k;
   lost = false;
-  await idbPut(HANDLES, HANDLE_KEY, handle).catch(() => {});
+  rootName = handle.name || '';
+  persisted = k === 'browser' ? await opfs.requestPersistence() : true;
   announce();
-  return handle.name;
 }
 
-/* Called once at boot. Never prompts — a prompt without a click is refused by
-   the browser, and would be rude anyway. */
+function release() {
+  root = null;
+  kind = null;
+  rootName = '';
+  persisted = false;
+}
+
+/* Must be called from a click. */
+export async function connect() {
+  await adopt('folder', await folder.pick());
+  return label();
+}
+
+/* Called once at boot. Never prompts for a folder — a prompt without a click
+   is refused by the browser, and would be rude anyway.
+
+   A remembered folder wins. Failing that the app falls back to browser
+   storage, whether or not this browser could have offered a picker: the
+   alternative is saving nothing at all until the user finds the button, and a
+   first session lost to a reload is worse than files in a place they cannot
+   browse. Choosing a folder later moves everything across.
+
+   The one case that adopts nothing is a remembered folder whose permission has
+   lapsed. Browser storage would take the writes while the real setup sat in
+   the folder, and half a setup in each place is worse than a button that says
+   "reconnect". */
 export async function restore() {
-  if (!SUPPORTS_FS) return { state: 'unsupported' };
-  let handle = null;
-  try { handle = await idbGet(HANDLES, HANDLE_KEY); } catch (e) { handle = null; }
-  if (!handle) return { state: 'none' };
-  let perm = 'prompt';
-  try { perm = await handle.queryPermission({ mode: 'readwrite' }); } catch (e) { perm = 'prompt'; }
-  if (perm === 'granted') {
-    dirHandle = handle;
-    announce();
-    return { state: 'connected', name: handle.name };
+  if (folder.SUPPORTED) {
+    const saved = await folder.remembered();
+    if (saved && saved.permission === 'granted') {
+      await adopt('folder', saved.handle);
+      return { state: 'folder', name: label() };
+    }
+    if (saved) return { state: 'needs-permission', name: saved.handle.name, handle: saved.handle };
   }
-  return { state: 'needs-permission', name: handle.name, handle };
+  if (opfs.SUPPORTED) {
+    try {
+      await adopt('browser', await opfs.root());
+      return { state: 'browser', persisted };
+    } catch (e) {
+      console.error('Browser storage is there but would not open', e);
+      release();
+    }
+  }
+  return { state: 'unsupported' };
 }
 
 /* Must be called from a click. */
 export async function regrant(handle) {
-  const perm = await handle.requestPermission({ mode: 'readwrite' });
-  if (perm !== 'granted') return false;
-  dirHandle = handle;
-  lost = false;
-  announce();
+  if (!(await folder.regrant(handle))) return false;
+  await adopt('folder', handle);
   return true;
 }
 
+/* Leaves the folder and lands back on browser storage, taking the folder's
+   current contents with it. Without that copy the app would drop back to
+   whatever browser storage held on the day the folder was chosen, which by
+   then could be months stale. */
 export async function disconnect() {
-  dirHandle = null;
-  lost = false;
-  await idbDel(HANDLES, HANDLE_KEY).catch(() => {});
-  announce();
-}
-
-/* A write failing usually means the handle went stale — the folder was moved,
-   renamed or the permission was revoked. Drop it so the UI asks for a fresh
-   one instead of silently losing every later write too. */
-async function invalidate(err) {
-  console.error('Folder write failed', err);
-  dirHandle = null;
-  lost = true;
-  await idbDel(HANDLES, HANDLE_KEY).catch(() => {});
-  announce();
-}
-
-/* ── the browser's own storage ───────────────────────────────────────── */
-
-/* Opens the file store and proves a write goes through. Returns false where
-   IndexedDB is missing or refuses, and the app carries on in memory. */
-export async function useBrowser() {
-  try {
-    await idbPut(FILES, '.probe', 1);
-    await idbDel(FILES, '.probe');
-    browserReady = true;
-  } catch (e) {
-    console.error('Browser storage unavailable', e);
-    browserReady = false;
-  }
-  return browserReady;
-}
-
-/* Asks the browser not to evict this site's storage under pressure. Safari
-   and Firefox may say no; the answer is shown, not assumed. */
-export async function askPersist() {
-  try {
-    if (!navigator.storage || !navigator.storage.persist) return false;
-    return (await navigator.storage.persisted()) || (await navigator.storage.persist());
-  } catch (e) { return false; }
-}
-
-/* Files are kept as bytes plus a type rather than as Blobs: older Safari
-   refused Blobs in IndexedDB in private windows, and bytes work everywhere. */
-const browser = {
-  async read(path) {
-    const rec = await idbGet(FILES, path).catch(() => undefined);
-    return rec ? new Blob([rec.bytes], { type: rec.type }) : null;
-  },
-  async write(path, blob) {
+  await copyToBrowser();
+  release();
+  await folder.forget();
+  if (opfs.SUPPORTED) {
     try {
-      await idbPut(FILES, path, { type: blob.type, bytes: await blob.arrayBuffer() });
-      return true;
+      await adopt('browser', await opfs.root());
+      return backend();
     } catch (e) {
-      console.error(`Could not store ${path}`, e);
-      return false;
+      console.error('Browser storage would not open', e);
+      release();
     }
-  },
-  remove(path) {
-    return idbDel(FILES, path).then(() => true, () => false);
-  },
-  async paths() {
-    const keys = await idbKeys(FILES).catch(() => []);
-    return keys.filter((k) => typeof k === 'string' && k !== '.probe');
-  },
-};
+  }
+  announce();
+  return backend();
+}
 
-/* ── the folder, as the same four operations ─────────────────────────── */
+/* A folder write failing usually means the handle went stale — the folder was
+   moved, renamed, or its permission revoked. Drop it so the UI asks for a
+   fresh one instead of silently losing every later write too.
 
-async function resolve(path, { create = false } = {}) {
-  if (!dirHandle) return null;
+   Browser storage cannot go stale that way: a failure there is the disk or the
+   quota, everything already written is still readable, and there is no other
+   store to fall back to — so the root is worth keeping. */
+async function invalidate(err) {
+  console.error('Write failed', err);
+  if (kind !== 'folder') return;
+  release();
+  lost = true;
+  await folder.forget();
+  announce();
+}
+
+async function subdir(name, create) {
+  if (!root) return null;
+  try {
+    return await root.getDirectoryHandle(name, { create });
+  } catch (e) {
+    return null;
+  }
+}
+
+/* ── files ───────────────────────────────────────────────────────────── */
+
+/* Walks a path under any root. Copying between two stores needs to reach into
+   a directory that is not the live one, so the root is a parameter here and
+   resolve() below is the live-store case of it. */
+async function resolveIn(base, path, { create = false } = {}) {
+  if (!base) return null;
   const parts = path.split('/');
   const file = parts.pop();
-  let dir = dirHandle;
+  let dir = base;
   for (const part of parts) {
     dir = await dir.getDirectoryHandle(part, { create }).catch(() => null);
     if (!dir) return null;
@@ -223,67 +221,19 @@ async function resolve(path, { create = false } = {}) {
   return dir.getFileHandle(file, { create }).catch(() => null);
 }
 
-
-const folder = {
-  async read(path) {
-    const handle = await resolve(path);
-    if (!handle) return null;
-    try { return await handle.getFile(); } catch (e) { return null; }
-  },
-  async write(path, blob) {
-    const handle = await resolve(path, { create: true });
-    if (!handle) return false;
-    try {
-      const writable = await handle.createWritable();
-      await writable.write(blob);
-      await writable.close();
-      return true;
-    } catch (e) {
-      await invalidate(e);
-      return false;
-    }
-  },
-  async remove(path) {
-    const parts = path.split('/');
-    const file = parts.pop();
-    let dir = dirHandle;
-    for (const part of parts) {
-      if (!dir) return false;
-      dir = await dir.getDirectoryHandle(part).catch(() => null);
-    }
-    if (!dir) return false;
-    return dir.removeEntry(file).then(() => true, () => false);
-  },
-  /* Only the app's own corners of the folder are looked at — if it is a git
-     clone or a Documents folder, the rest is none of our business. */
-  async paths() {
-    if (!dirHandle) return [];
-    const out = [];
-    if (await resolve('settings.json')) out.push('settings.json');
-    for (const sub of ['decks', 'audio']) {
-      const dir = await dirHandle.getDirectoryHandle(sub).catch(() => null);
-      if (!dir) continue;
-      for await (const [name, entry] of dir.entries()) {
-        const path = `${sub}/${name}`;
-        if (entry.kind === 'file' && dataPath(path) === path) out.push(path);
-      }
-    }
-    return out;
-  },
-};
-
-function backend() {
-  const w = where();
-  return w === 'folder' ? folder : w === 'browser' ? browser : null;
+function resolve(path, opts) {
+  return resolveIn(root, path, opts);
 }
 
-/* ── files ───────────────────────────────────────────────────────────── */
-
 export async function readText(path) {
-  const b = backend();
-  const blob = b && await b.read(path);
-  if (!blob) return null;
-  try { return await blob.text(); } catch (e) { return null; }
+  const handle = await resolve(path);
+  if (!handle) return null;
+  try {
+    const file = await handle.getFile();
+    return await file.text();
+  } catch (e) {
+    return null;
+  }
 }
 
 export async function readJson(path) {
@@ -295,8 +245,18 @@ export async function readJson(path) {
   }
 }
 
-export function writeText(path, text) {
-  return writeBlob(path, new Blob([text], { type: 'text/plain' }));
+export async function writeText(path, text) {
+  const handle = await resolve(path, { create: true });
+  if (!handle) return false;
+  try {
+    const writable = await handle.createWritable();
+    await writable.write(text);
+    await writable.close();
+    return true;
+  } catch (e) {
+    await invalidate(e);
+    return false;
+  }
 }
 
 export function writeJson(path, value) {
@@ -304,87 +264,212 @@ export function writeJson(path, value) {
 }
 
 export async function writeBlob(path, blob) {
-  const b = backend();
-  return b ? b.write(path, blob) : false;
+  const handle = await resolve(path, { create: true });
+  if (!handle) return false;
+  try {
+    const writable = await handle.createWritable();
+    await writable.write(blob);
+    await writable.close();
+    return true;
+  } catch (e) {
+    await invalidate(e);
+    return false;
+  }
 }
 
 export async function readBlob(path) {
-  const b = backend();
-  return b ? b.read(path) : null;
+  const handle = await resolve(path);
+  if (!handle) return null;
+  try {
+    return await handle.getFile();
+  } catch (e) {
+    return null;
+  }
 }
 
 export async function readBlobUrl(path) {
-  const blob = await readBlob(path);
-  return blob ? URL.createObjectURL(blob) : null;
+  const file = await readBlob(path);
+  return file ? URL.createObjectURL(file) : null;
 }
 
 export async function remove(path) {
-  const b = backend();
-  return b ? b.remove(path) : false;
+  const parts = path.split('/');
+  const file = parts.pop();
+  let dir = root;
+  for (const part of parts) {
+    if (!dir) return false;
+    dir = await dir.getDirectoryHandle(part).catch(() => null);
+  }
+  if (!dir) return false;
+  return dir.removeEntry(file).then(() => true, () => false);
+}
+
+/* entries() is the natural way to walk a directory, but the browsers that only
+   have browser storage were also the slowest to the async iterators, so fall
+   back to values() where entries() is missing. */
+async function* handlesIn(dir) {
+  if (typeof dir.entries === 'function') {
+    for await (const [, entry] of dir.entries()) yield entry;
+  } else if (typeof dir.values === 'function') {
+    for await (const entry of dir.values()) yield entry;
+  }
+}
+
+/* Every file directly inside one of the data directories, by name. */
+export async function listIn(dirName) {
+  const dir = await subdir(dirName, false);
+  if (!dir) return [];
+  const names = [];
+  for await (const entry of handlesIn(dir)) {
+    if (entry.kind === 'file') names.push(entry.name);
+  }
+  return names.sort();
 }
 
 export async function listDecks() {
-  const b = backend();
-  if (!b) return [];
-  return (await b.paths())
-    .filter((p) => /^decks\/[^/]+\.json$/.test(p))
-    .map((p) => p.slice('decks/'.length, -'.json'.length))
-    .sort();
+  const names = await listIn('decks');
+  return names.filter((n) => n.endsWith('.json')).map((n) => n.slice(0, -5));
 }
 
-/* Folders need decks/ and audio/ to exist before a file can go in them;
-   browser storage has no directories to make. */
-export async function ensureSubdirs() {
-  if (!dirHandle) return;
-  await Promise.all(['decks', 'audio'].map((n) => dirHandle.getDirectoryHandle(n, { create: true }).catch(() => null)));
+export function ensureSubdirs() {
+  return Promise.all(DATA_DIRS.map((name) => subdir(name, true)));
 }
 
-/* ── backups ─────────────────────────────────────────────────────────── */
+/* ── the data layout, as a set of paths ──────────────────────────────── */
 
-/* The files a backup holds, and the only ones a restore will write. Anything
-   else in a folder — a .git, a README, a .DS_Store, the ._name AppleDouble
-   files macOS adds when it zips — is not the app's. */
-const DATA_PATH = /^(settings\.json|decks\/[^/.][^/]*\.json|audio\/[^/.][^/]*\.(json|wav|txt))$/;
+const DATA_DIRS = ['decks', 'audio', 'shadowing'];
+
+/* Exactly the files this app owns. Everything else in a folder — a .git, a
+   README, a .DS_Store, the ._name AppleDouble files macOS adds when it zips —
+   belongs to whoever put it there, and is neither backed up nor restored.
+
+   The shadowing takes carry four possible extensions because MediaRecorder
+   hands back whatever its browser prefers: webm on Chrome, ogg on Firefox,
+   mp4 on Safari. The file is named from the recorder's own mimeType rather
+   than assumed, so a backup written on one browser opens on another. */
+const DATA_FILE = /^(settings\.json|decks\/[^/.][^/]*\.json|audio\/[^/.][^/]*\.(json|wav|txt)|shadowing\/[^/.][^/]*\.(json|webm|ogg|mp4|m4a|wav))$/;
 
 /* Maps a path from a zip or a picked folder onto the data layout, or null.
-   Leading folders are dropped, because an unzipped-then-rezipped backup, or a
-   folder chosen one level up, nests everything under its own name. */
+   Leading folders are dropped, because a backup that was unzipped and zipped
+   again by the operating system nests everything under its own name. */
 export function dataPath(raw) {
   const parts = String(raw).replace(/\\/g, '/').split('/').filter(Boolean);
   if (parts.includes('__MACOSX')) return null;
   for (let i = 0; i < parts.length; i++) {
     const candidate = parts.slice(i).join('/');
-    if (DATA_PATH.test(candidate)) return candidate;
+    if (DATA_FILE.test(candidate)) return candidate;
   }
   return null;
 }
 
-/* Every data file the current store holds, for a backup. */
-export async function allFiles() {
-  const b = backend();
-  if (!b) return [];
-  const out = [];
-  for (const path of (await b.paths()).sort()) {
-    const blob = await b.read(path);
-    if (blob) out.push({ path, data: blob });
+/* Every data file under a root, as {path, handle}. Only the app's own corners
+   are walked — see DATA_FILE. */
+async function* dataFilesUnder(base) {
+  if (!base) return;
+  const settings = await resolveIn(base, 'settings.json');
+  if (settings) yield { path: 'settings.json', handle: settings };
+  for (const name of DATA_DIRS) {
+    const dir = await base.getDirectoryHandle(name).catch(() => null);
+    if (!dir) continue;
+    for await (const entry of handlesIn(dir)) {
+      const path = `${name}/${entry.name}`;
+      if (entry.kind === 'file' && dataPath(path) === path) yield { path, handle: entry };
+    }
   }
-  return out;
 }
 
-/* Copies what browser storage holds into the current store — used once, when
-   an empty folder is connected, so nothing practised before is left behind. */
-export async function copyFromBrowser() {
-  const b = backend();
-  if (!b || b === browser) return 0;
+/* Every data file the live store holds, as {path, data}, for a backup. */
+export async function allFiles() {
+  const out = [];
+  for await (const { path, handle } of dataFilesUnder(root)) {
+    const file = await handle.getFile().catch(() => null);
+    if (file) out.push({ path, data: file });
+  }
+  return out.sort((a, b) => a.path.localeCompare(b.path));
+}
+
+/* Writes files straight into the live store, for a restore. Returns how many
+   landed. Paths are mapped through dataPath() first, so nothing outside the
+   layout can be written whatever a zip claims to contain. */
+export async function writeDataFiles(files) {
   let n = 0;
-  for (const path of await browser.paths()) {
-    const blob = await browser.read(path);
-    if (blob && await b.write(path, blob)) n++;
+  for (const { path, data } of files) {
+    const safe = dataPath(path);
+    if (!safe) continue;
+    if (await writeBlob(safe, data instanceof Blob ? data : new Blob([data]))) n++;
   }
   return n;
 }
 
-/* ── the API key: localStorage only, never the folder ────────────────── */
+/* ── moving between the two stores ───────────────────────────────────── */
+
+async function copyBetween(from, to) {
+  let n = 0;
+  for await (const { path, handle } of dataFilesUnder(from)) {
+    const file = await handle.getFile().catch(() => null);
+    if (!file) continue;
+    const target = await resolveIn(to, path, { create: true });
+    if (!target) continue;
+    try {
+      const writable = await target.createWritable();
+      await writable.write(file);
+      await writable.close();
+      n++;
+    } catch (e) {
+      console.error(`Could not copy ${path}`, e);
+    }
+  }
+  return n;
+}
+
+/* Whether the live store already holds a setup of its own. */
+async function hasData() {
+  if (await resolve('settings.json')) return true;
+  return (await listDecks()).length > 0;
+}
+
+/* Browser storage into the folder just connected — the one-way trip a first
+   folder makes, so a session practised before there was anywhere better is not
+   left behind in a place the user cannot see.
+
+   Refuses a folder that already holds a setup: that folder is the record, and
+   a stale browser copy must never be allowed to write over it. */
+export async function copyFromBrowser() {
+  if (kind !== 'folder' || !opfs.SUPPORTED) return 0;
+  if (await hasData()) return 0;
+  const src = await opfs.root().catch(() => null);
+  if (!src) return 0;
+  await ensureSubdirs();
+  return copyBetween(src, root);
+}
+
+/* The folder back into browser storage, which is what makes disconnecting
+   safe: browser storage is the floor the app lands on, and it would otherwise
+   still hold whatever was there on the day the folder was chosen.
+
+   What is already there is cleared first, not written over. Copying alone
+   would leave a deck that was deleted while the folder was connected sitting
+   in browser storage, ready to reappear on disconnect — the folder is the
+   record, so this makes browser storage match it exactly. */
+async function copyToBrowser() {
+  if (kind !== 'folder' || !opfs.SUPPORTED) return 0;
+  const dest = await opfs.root().catch(() => null);
+  if (!dest) return 0;
+  /* Listed in full before anything is removed: deleting entries out of a
+     directory that is still being iterated is not something to rely on. */
+  const stale = [];
+  for await (const { path } of dataFilesUnder(dest)) stale.push(path);
+  for (const path of stale) {
+    const parts = path.split('/');
+    const name = parts.pop();
+    const dir = parts.length ? await dest.getDirectoryHandle(parts[0]).catch(() => null) : dest;
+    if (dir) await dir.removeEntry(name).catch(() => {});
+  }
+  for (const name of DATA_DIRS) await dest.getDirectoryHandle(name, { create: true }).catch(() => null);
+  return copyBetween(root, dest);
+}
+
+/* ── the API key: localStorage only, never the store ─────────────────── */
 
 export function getApiKey() {
   try { return localStorage.getItem(KEY_STORAGE) || ''; } catch (e) { return ''; }
@@ -397,7 +482,7 @@ export function setApiKey(key) {
   } catch (e) { /* private mode; the key just will not be remembered */ }
 }
 
-/* ── small values that must work with no folder connected ────────────── */
+/* ── small values that must work with nothing connected ──────────────── */
 
 export function localGet(key, fallback) {
   try {
@@ -410,8 +495,9 @@ export function localSet(key, value) {
   try { localStorage.setItem('lsw.' + key, JSON.stringify(value)); } catch (e) { /* ignore */ }
 }
 
-/* Download as a file — for taking a deck, a sentence or a whole backup out of
-   the app. `data` is text or a Blob. */
+/* Download as a file — the escape hatch for a browser that can save nothing,
+   and for taking a deck, a sentence's audio or a whole backup out of the app.
+   `data` is text or a Blob. */
 export function download(filename, data, type = 'application/json') {
   const url = URL.createObjectURL(data instanceof Blob ? data : new Blob([data], { type }));
   const a = document.createElement('a');
@@ -420,7 +506,8 @@ export function download(filename, data, type = 'application/json') {
   document.body.appendChild(a);
   a.click();
   a.remove();
-  /* Safari starts a large download after the click returns; revoking too
-     soon cancels it. */
+  /* A minute, not a second. Safari starts a large download only after the
+     click returns, and revoking too soon cancels it — which a backup zip full
+     of audio is exactly big enough to hit. */
   setTimeout(() => URL.revokeObjectURL(url), 60000);
 }

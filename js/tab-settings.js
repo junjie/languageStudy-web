@@ -1,12 +1,16 @@
-/* Settings: the folder, the key, the language, the models, the budget,
-   the prompts and the voices. */
+/* Settings: where data is saved, the key, the language, the models, the
+   budget, the prompts and the voices. */
 
 import * as storage from './storage.js';
 import * as store from './store.js';
-import { VOICES, DEFAULT_SENTENCE_PROMPT, DEFAULT_SPEECH_PROMPT } from './defaults.js';
+import {
+  VOICES, MODEL_ROLES, rolesUsing,
+  DEFAULT_SENTENCE_PROMPT, DEFAULT_SPEECH_PROMPT, DEFAULT_SHADOW_PROMPT,
+} from './defaults.js';
 import { fillTemplate, sentenceVars, formatWait, GeminiError, QuotaError } from './gemini.js';
 import { serializeDeck } from './deck.js';
-import { readZip } from './zip.js';
+import { serializeBundle, parseBundle, describeBundle, bundleFilename } from './bundle.js';
+import { makeZip, readZip } from './zip.js';
 import * as speech from './speech.js';
 
 const $ = (id) => document.getElementById(id);
@@ -15,9 +19,11 @@ const $ = (id) => document.getElementById(id);
    lapsed — requestPermission() is only allowed from a click. */
 let pendingHandle = null;
 
-/* Whether the browser has promised not to evict its storage: null until
-   asked, which happens only once browser storage is in use. */
-let persisted = null;
+/* A file that has been read and understood but not yet written anywhere:
+   either {kind:'bundle'} or {kind:'restore'}. Both can change every deck at
+   once, so the file is described first and nothing happens until that has been
+   confirmed. */
+let pending = null;
 
 const SAMPLE_TERMS = [
   { front: 'cải tiến', back: 'to improve' },
@@ -26,206 +32,306 @@ const SAMPLE_TERMS = [
 ];
 
 export function init() {
-  wireFolder();
+  wireStore();
   wireKey();
+  wireModels();
   wireFields();
   wirePrompts();
   wireVoices();
   wireSpeech();
+  wireShadowing();
 
   store.subscribe('settings', render);
-  store.subscribe('folder', renderFolder);
+  store.subscribe('folder', renderStore);
   store.subscribe('quota', renderQuota);
-  store.subscribe('deck', renderFolder);
+  store.subscribe('deck', renderStore);
   render();
-  renderFolder();
+  renderStore();
   renderQuota();
   setInterval(renderQuota, 1000);
 }
 
-/* ── folder ──────────────────────────────────────────────────────────── */
+/* ── where data is saved ─────────────────────────────────────────────── */
 
-function wireFolder() {
-  $('folder-connect').addEventListener('click', async () => {
+function wireStore() {
+  $('store-choose').addEventListener('click', async () => {
+    let moved = 0;
     try {
       if (pendingHandle) {
         const ok = await storage.regrant(pendingHandle);
-        if (!ok) { setFolderStatus('Permission refused — still saving in this browser instead.', 'is-warn'); return; }
+        if (!ok) { setStoreStatus('Permission refused — the folder is still not being written to.', 'is-warn'); return; }
         pendingHandle = null;
       } else {
         await storage.connect();
+        /* Everything saved in this browser so far goes with you. Refused if
+           the folder already holds a setup of its own — see copyFromBrowser. */
+        moved = await storage.copyFromBrowser();
       }
-      await store.adopt();
+      await store.adoptFolder();
     } catch (e) {
       if (e && e.name === 'AbortError') return;
       console.error(e);
-      setFolderStatus('Could not open that folder: ' + e.message, 'is-bad');
-    }
-  });
-
-  $('folder-disconnect').addEventListener('click', async () => {
-    await storage.disconnect();
-    await useBrowser();
-  });
-
-  /* The way off a folder: copy it into browser storage and carry on there.
-     The folder itself is left exactly as it was, so this loses nothing. */
-  $('folder-to-browser').addEventListener('click', async () => {
-    const name = storage.folderName();
-    if (!confirm(`Copy everything in "${name}" into this browser's storage and stop using the folder?\n\n`
-      + 'The folder is left untouched. Anything already in browser storage with the same name is replaced; banked sentences are merged.')) return;
-    const files = [];
-    for (const { path, data } of await storage.allFiles()) {
-      files.push({ path, bytes: new Uint8Array(await data.arrayBuffer()) });
-    }
-    await storage.disconnect();
-    if (!(await store.useBrowser())) {
-      setFolderStatus('This browser will not store anything, so nothing was moved. Choose the folder again to keep using it.', 'is-bad');
+      setStoreStatus('Could not open that folder: ' + e.message, 'is-bad');
       return;
     }
-    persisted = await storage.askPersist();
-    const n = await store.restoreFiles(files);
-    setFolderStatus(`Moved ${n} file${n === 1 ? '' : 's'} from "${name}" into this browser. The folder is untouched; you can delete it or keep it as a backup.`, 'is-ok');
+    /* After adoptFolder(), because it emits and every emit rewrites this line. */
+    if (moved) {
+      setStoreStatus(`Saving to "${storage.label()}" — ${plural(moved, 'file')} moved across from this browser's storage.`, 'is-ok');
+    }
   });
 
-  $('folder-export').addEventListener('click', () => {
+  $('store-disconnect').addEventListener('click', async () => {
+    const was = storage.label();
+    const landed = await storage.disconnect();
+    if (landed) {
+      await store.adoptFolder();
+      setStoreStatus(`Disconnected from "${was}". Everything in it was copied back into this browser's storage, which is what is being saved to now.`, 'is-ok');
+    } else {
+      store.releaseFolder();
+      setStoreStatus(`Disconnected from "${was}". This browser has nowhere else to save, so nothing is being saved.`, 'is-warn');
+    }
+  });
+
+  $('store-export').addEventListener('click', () => {
     storage.download(`${store.state.deckName}.json`, serializeDeck(store.state.cards));
   });
 
-  $('backup-download').addEventListener('click', async () => {
-    const btn = $('backup-download');
-    btn.disabled = true;
-    try {
-      const zip = await store.backupZip();
-      storage.download(`language-study-${new Date().toISOString().slice(0, 10)}.zip`, zip);
-    } catch (e) {
-      console.error(e);
-      setFolderStatus('Could not build the backup: ' + e.message, 'is-bad');
-    } finally {
-      btn.disabled = false;
-    }
+  $('store-export-all').addEventListener('click', () => {
+    const bundle = store.exportBundle();
+    const name = bundleFilename();
+    storage.download(name, serializeBundle(bundle));
+    setStoreStatus(`Exported ${describeBundle(readBack(bundle))} to ${name}.`, 'is-ok');
   });
 
-  $('restore-zip').addEventListener('click', () => $('restore-zip-input').click());
-  $('restore-dir').addEventListener('click', () => $('restore-dir-input').click());
+  $('backup-download').addEventListener('click', async () => {
+    if (!store.state.persistent) {
+      setStoreStatus('Nothing is being saved, so there is nothing to back up. Use Export everything for the decks held in memory.', 'is-warn');
+      return;
+    }
+    const files = await storage.allFiles();
+    if (!files.length) {
+      setStoreStatus('The store is empty — there is nothing to back up yet.', 'is-warn');
+      return;
+    }
+    const name = backupFilename();
+    const zip = await makeZip(files);
+    storage.download(name, zip);
+    setStoreStatus(`Backed up ${plural(files.length, 'file')} (${size(zip.size)}) to ${name}.`, 'is-ok');
+  });
 
-  $('restore-zip-input').addEventListener('change', async (e) => {
-    const file = e.target.files[0];
+  $('backup-restore').addEventListener('click', () => {
+    if (!store.state.persistent) {
+      setStoreStatus('There is nowhere to restore to. This browser is saving nothing at the moment.', 'is-warn');
+      return;
+    }
+    $('backup-restore-file').click();
+  });
+
+  $('backup-restore-file').addEventListener('change', async (e) => {
+    const file = e.target.files && e.target.files[0];
     e.target.value = '';
     if (!file) return;
+    showImport(null);
+    let entries;
     try {
-      const entries = await readZip(file);
-      await restore(file.name, entries.map(({ path, bytes }) => ({ path: storage.dataPath(path), bytes })));
+      entries = await readZip(file);
     } catch (err) {
-      console.error(err);
-      setFolderStatus(`Could not read ${file.name}: ${err.message}`, 'is-bad');
+      setStoreStatus(`${file.name} could not be read: ${err.message}`, 'is-bad');
+      return;
     }
+    /* Anything outside the data layout is dropped here, before the file is
+       described — so what the preview promises is exactly what gets written. */
+    const files = [];
+    for (const { path, bytes } of entries) {
+      const safe = storage.dataPath(path);
+      if (safe) files.push({ path: safe, data: new Blob([bytes]) });
+    }
+    if (!files.length) {
+      setStoreStatus(`${file.name} holds no data files this app recognises — a backup has settings.json, decks/ and audio/ in it.`, 'is-bad');
+      return;
+    }
+    pending = { kind: 'restore', name: file.name, files };
+    showImport(`${file.name} holds ${describeFiles(files)}. Restoring writes them straight into ${storage.label()}, overwriting any file of the same name. Decks you have that the backup does not are left alone.`);
   });
 
-  $('restore-dir-input').addEventListener('change', async (e) => {
-    const picked = [...e.target.files];
-    e.target.value = '';
-    if (!picked.length) return;
-    const top = (picked[0].webkitRelativePath || picked[0].name).split('/')[0];
-    const files = [];
-    for (const f of picked) {
-      const path = storage.dataPath(f.webkitRelativePath || f.name);
-      if (path) files.push({ path, bytes: new Uint8Array(await f.arrayBuffer()) });
+  $('store-import').addEventListener('click', () => {
+    if (!store.state.persistent) {
+      setStoreStatus('There is nowhere to import to yet. Choose a folder first, so the decks have somewhere to land.', 'is-warn');
+      return;
     }
-    await restore(`"${top}"`, files);
+    $('store-import-file').click();
+  });
+
+  $('store-import-file').addEventListener('change', async (e) => {
+    const file = e.target.files && e.target.files[0];
+    /* Cleared so that picking the same file again still counts as a change. */
+    e.target.value = '';
+    if (!file) return;
+    showImport(null);
+    let text = '';
+    try {
+      text = await file.text();
+    } catch (err) {
+      setStoreStatus(`Could not read ${file.name}: ${err.message}`, 'is-bad');
+      return;
+    }
+    const parsed = parseBundle(text);
+    if (parsed.error) {
+      setStoreStatus(`${file.name} cannot be imported — ${parsed.error}`, 'is-bad');
+      return;
+    }
+    pending = { kind: 'bundle', bundle: parsed.bundle };
+    showImport(`${file.name} holds ${describeBundle(parsed.bundle)}. Importing adds these decks alongside the ones you have — nothing is replaced or overwritten, and a name already in use gets a free one.`);
+  });
+
+  $('import-confirm').addEventListener('click', async () => {
+    const action = pending;
+    pending = null;
+    showImport(null);
+    if (!action) return;
+    if (action.kind === 'restore') { await runRestore(action); return; }
+    const bundle = action.bundle;
+    let added = [];
+    try {
+      added = await store.importBundle(bundle);
+    } catch (err) {
+      setStoreStatus(`Import failed: ${err.message}`, 'is-bad');
+      return;
+    }
+    /* After the import, because it emits and every emit rewrites this line. */
+    const renamed = added.filter((a) => a.name !== a.from);
+    const bits = [`Imported ${added.length} deck${added.length === 1 ? '' : 's'}`];
+    if (renamed.length) {
+      bits.push(`renamed to avoid a clash: ${renamed.map((r) => `"${r.from}" → "${r.name}"`).join(', ')}`);
+    }
+    if (bundle.settings) bits.push('settings applied');
+    setStoreStatus(bits.join(' · ') + '.', 'is-ok');
+  });
+
+  $('import-cancel').addEventListener('click', () => {
+    pending = null;
+    showImport(null);
+    setStoreStatus('Cancelled — nothing was changed.', '');
   });
 }
 
-async function restore(label, mapped) {
-  const files = mapped.filter((f) => f.path);
-  if (!files.length) {
-    setFolderStatus(`Nothing in ${label} looks like this app's data — expected settings.json, decks/ or audio/.`, 'is-bad');
+/* Writes a checked backup into the live store and rereads everything, since a
+   restore can replace the settings and every deck in one go. */
+async function runRestore(action) {
+  let written = 0;
+  try {
+    written = await storage.writeDataFiles(action.files);
+  } catch (err) {
+    setStoreStatus(`Restore failed: ${err.message}`, 'is-bad');
     return;
   }
+  await store.adoptFolder();
+  setStoreStatus(`Restored ${plural(written, 'file')} from ${action.name}.`, 'is-ok');
+}
+
+function backupFilename(now = new Date()) {
+  return `language-study-backup-${now.toISOString().slice(0, 10)}.zip`;
+}
+
+function plural(n, word) {
+  return `${n} ${word}${n === 1 ? '' : 's'}`;
+}
+
+function size(bytes) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+/* What a backup holds, counted the way someone thinks about it. */
+function describeFiles(files) {
   const decks = files.filter((f) => f.path.startsWith('decks/')).length;
-  const audio = files.filter((f) => f.path.endsWith('.wav')).length;
-  const ok = confirm(`Restore from ${label}: ${decks} deck${decks === 1 ? '' : 's'}, ${audio} recording${audio === 1 ? '' : 's'}, ${files.length} files in all.\n\n`
-    + 'Decks and settings with the same name are replaced by the ones in the backup. Everything else you have is kept, and banked sentences are merged.');
-  if (!ok) return;
-  const n = await store.restoreFiles(files);
-  setFolderStatus(`Restored ${n} file${n === 1 ? '' : 's'} from ${label}.`, 'is-ok');
+  const audio = files.filter((f) => /^audio[/].+[.]wav$/.test(f.path)).length;
+  const bits = [];
+  if (decks) bits.push(plural(decks, 'deck'));
+  if (audio) bits.push(plural(audio, 'banked sentence'));
+  if (files.some((f) => f.path === 'settings.json')) bits.push('settings');
+  return bits.length ? bits.join(', ') : plural(files.length, 'file');
 }
 
-async function useBrowser() {
-  if (await store.useBrowser()) {
-    persisted = await storage.askPersist();
-    renderFolder();
-  }
+/* Show the pending bundle, or hide the whole block when there is none. */
+function showImport(text) {
+  const box = $('import-preview');
+  $('import-note').textContent = text || '';
+  box.hidden = !text;
 }
 
-export async function restoreFolder() {
+/* describeBundle() speaks about a parsed bundle, so an exported one is read
+   back through the same parser to be described by the same code. */
+function readBack(bundle) {
+  const parsed = parseBundle(serializeBundle(bundle));
+  return parsed.bundle || { decks: [], settings: bundle.settings || null, exported: bundle.exported || null };
+}
+
+export async function restoreStore() {
   const result = await storage.restore();
-  if (result.state === 'connected') {
-    await store.adopt();
+  if (result.state === 'folder' || result.state === 'browser') {
+    await store.adoptFolder();
     return;
   }
   if (result.state === 'needs-permission') {
     pendingHandle = result.handle;
-    $('folder-connect').textContent = `Reconnect "${result.name}"`;
+    $('store-choose').textContent = `Reconnect "${result.name}"`;
+    setStoreStatus(`"${result.name}" is remembered but the browser needs you to allow it again.`, 'is-warn');
+    return;
   }
-  await useBrowser();
+  if (result.state === 'unsupported') {
+    setStoreStatus('This browser can save nothing: it has neither a folder picker nor writable browser storage. Use Export everything to keep your work, or open this page in a current Chrome, Edge, Firefox or Safari.', 'is-warn');
+  }
 }
 
-function renderFolder() {
-  const w = storage.where();
-  const name = storage.folderName();
-  const n = store.state.deckNames.length;
-  const m = store.state.manifest.length;
-  const counts = `${n} deck${n === 1 ? '' : 's'}, ${m} banked sentence${m === 1 ? '' : 's'}`;
+function renderStore() {
+  const kind = storage.backend();
+  const where = storage.label();
+  const decks = store.state.deckNames.length;
+  const banked = store.state.manifest.length;
+  const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
-  $('folder-connect').hidden = !storage.SUPPORTS_FS || w === 'folder';
-  $('folder-disconnect').hidden = w !== 'folder';
-  $('folder-to-browser').hidden = w !== 'folder';
-  $('folder-export').hidden = !store.state.cards.length;
-  for (const id of ['restore-zip', 'restore-dir']) $(id).disabled = w !== 'folder' && w !== 'browser';
+  /* Choosing a folder is only offered where folders exist. Elsewhere browser
+     storage is already live and there is nothing to choose between. */
+  $('store-choose').hidden = kind === 'folder' || !storage.SUPPORTS_FOLDER;
+  $('store-disconnect').hidden = kind !== 'folder';
+  $('store-export').hidden = !store.state.cards.length;
+  $('store-hint').textContent = where || 'nothing is being saved';
 
-  $('folder-hint').textContent = {
-    folder: name, browser: 'in this browser', lost: 'folder lost',
-  }[w] || 'not saving';
-
-  if (w === 'folder') {
-    setFolderStatus(`Saving to "${name}" — ${counts}.`, 'is-ok');
-  } else if (w === 'browser') {
-    const keep = persisted
-      ? ' The browser has agreed to keep it.'
-      : ' The browser has not promised to keep it, and Safari clears storage for sites you have not opened in a while, so download a backup now and then.';
-    if (pendingHandle) {
-      setFolderStatus(`"${pendingHandle.name}" is remembered but the browser needs you to allow it again. Until then, saving in this browser — ${counts}.`, 'is-warn');
-    } else {
-      setFolderStatus(`Saving in this browser — ${counts}.${keep}`, persisted ? 'is-ok' : 'is-warn');
-    }
-  } else if (w === 'lost') {
-    setFolderStatus('Lost access to the folder — it was moved, renamed, or its permission withdrawn. Choose it again; until then nothing is saved.', 'is-bad');
-  } else if (!store.state.settled) {
-    setFolderStatus('Opening storage…', '');
-  } else {
-    setFolderStatus('This browser is not letting the page store anything (a private window?), so nothing survives a reload. Download a backup before closing it.', 'is-warn');
+  if (kind === 'folder') {
+    setStoreStatus(`Saving to "${where}" — ${plural(decks, 'deck')}, ${plural(banked, 'banked sentence')}.`, 'is-ok');
+  } else if (kind === 'browser') {
+    /* Said every time, because these files are ones the user cannot go and
+       copy: the only warning they will get is this line. */
+    const risk = storage.isPersisted()
+      ? 'Clearing site data for this page deletes it.'
+      : 'The browser has not promised to keep it: clearing site data, or weeks without opening this page, deletes it.';
+    setStoreStatus(`Saving in this browser — ${plural(decks, 'deck')}, ${plural(banked, 'banked sentence')}. ${risk}`, 'is-ok');
+  } else if (storage.lostFolder()) {
+    /* Different from never having chosen one: the data is still in that
+       folder, and the way back is to point at it again. */
+    setStoreStatus('Lost access to the data folder — it may have been moved, renamed, or its permission withdrawn. Nothing is being saved until you choose it again.', 'is-bad');
+  } else if (!pendingHandle) {
+    setStoreStatus('Nothing is being saved. The app still works, but a reload loses it.', '');
   }
   updateBar();
 }
 
-function setFolderStatus(text, cls) {
-  const el = $('folder-status');
+function setStoreStatus(text, cls) {
+  const el = $('store-status');
   el.textContent = text;
   el.className = 'status ' + (cls || '');
 }
 
 export function updateBar() {
   const el = $('bar-status');
-  const w = storage.where();
+  const where = storage.label();
   const s = store.state.settings;
-  const where = w === 'folder' ? `folder: ${storage.folderName()}`
-    : w === 'browser' ? 'saved in browser'
-    : w === 'lost' ? 'folder lost' : 'not saving';
-  const bits = [s.targetLanguage || '—', where];
+  const bits = [s.targetLanguage || '—', where ? `saving to ${where}` : 'not saving'];
   if (!storage.getApiKey()) bits.push('no API key');
   el.textContent = bits.join('  ·  ');
-  el.className = 'bar-status ' + (w === 'folder' || w === 'browser' ? 'is-live' : 'is-off');
+  el.className = 'bar-status ' + (where ? 'is-live' : 'is-off');
 }
 
 /* ── key ─────────────────────────────────────────────────────────────── */
@@ -267,19 +373,18 @@ export function describe(e) {
 
 /* ── plain fields ────────────────────────────────────────────────────── */
 
+/* The plain settings: one input, one path, committed on change. The models
+   are not among them — they are a list with their own rules, in wireModels(),
+   and the three jobs are dropdowns filled from it. */
 const FIELDS = [
   ['set-language', 'targetLanguage', 'text'],
   ['set-level', 'learnerLevel', 'text'],
   ['set-note', 'languageNote', 'text'],
-  ['set-textmodel', 'textModel', 'text'],
-  ['set-ttsmodel', 'ttsModel', 'text'],
+  ['set-shadow-sounds', 'shadowSounds', 'text'],
+  ['set-shadow-items', 'shadowItems', 'int'],
   ['set-wmin', 'sentenceWords.min', 'int'],
   ['set-wmax', 'sentenceWords.max', 'int'],
   ['set-terms', 'termsPerSentence', 'int'],
-  ['set-trpm', 'limits.textRpm', 'int'],
-  ['set-trpd', 'limits.textRpd', 'int'],
-  ['set-srpm', 'limits.ttsRpm', 'int'],
-  ['set-srpd', 'limits.ttsRpd', 'int'],
 ];
 
 function wireFields() {
@@ -313,9 +418,13 @@ function render() {
   }
   const sp = $('set-prompt-sentence');
   const pp = $('set-prompt-speech');
+  const hp = $('set-prompt-shadowing');
   if (document.activeElement !== sp) sp.value = s.prompts.sentence;
   if (document.activeElement !== pp) pp.value = s.prompts.speech;
+  if (document.activeElement !== hp) hp.value = s.prompts.shadowing;
+  renderModels();
   renderVoices();
+  renderShadowing();
   renderPreview();
   updateBar();
 }
@@ -340,6 +449,15 @@ function wirePrompts() {
     store.saveSettings({ prompts: { ...store.state.settings.prompts, speech: DEFAULT_SPEECH_PROMPT } });
     renderPreview();
   });
+
+  const hp = $('set-prompt-shadowing');
+  hp.addEventListener('input', renderPreview);
+  hp.addEventListener('change', () => store.saveSettings({ prompts: { ...store.state.settings.prompts, shadowing: hp.value } }));
+  $('prompt-shadowing-reset').addEventListener('click', () => {
+    hp.value = DEFAULT_SHADOW_PROMPT;
+    store.saveSettings({ prompts: { ...store.state.settings.prompts, shadowing: DEFAULT_SHADOW_PROMPT } });
+    renderPreview();
+  });
 }
 
 function renderPreview() {
@@ -349,12 +467,26 @@ function renderPreview() {
   const sentence = fillTemplate(draft.prompts.sentence, sentenceVars(draft, sample));
   const spoken = fillTemplate(draft.prompts.speech, { sentence: '<the sentence it just wrote>' });
 
+  const shadowing = fillTemplate(draft.prompts.shadowing, {
+    language: draft.targetLanguage,
+    count: draft.shadowItems,
+    sounds: draft.shadowSounds && draft.shadowSounds.trim()
+      ? ` ${draft.targetLanguage} sounds worth listening for include ${draft.shadowSounds.trim()}.`
+      : '',
+  });
+
   const warnings = [];
   if (!draft.prompts.sentence.includes('{terms}')) {
     warnings.push('! The sentence prompt has no {terms} placeholder, so the model is never told which words to use.');
   }
   if (!draft.prompts.speech.includes('{sentence}')) {
     warnings.push('! The speech prompt has no {sentence} placeholder, so it will not read the sentence.');
+  }
+  /* The one part of the shadowing prompt that is not taste: a reply that
+     cannot be read is treated as a failure and nothing is stored, so a prompt
+     that stops asking for this shape would never produce any feedback. */
+  if (!draft.prompts.shadowing.includes('notes') || !draft.prompts.shadowing.includes('itemIndex')) {
+    warnings.push('! The shadowing prompt no longer asks for "notes" keyed by "itemIndex". A reply that cannot be read is treated as a failure, so no feedback would ever be stored.');
   }
 
   $('prompt-preview').value = [
@@ -364,6 +496,11 @@ function renderPreview() {
     '',
     `── to ${draft.ttsModel} ──`,
     spoken,
+    '',
+    `── to ${draft.shadowModel}, as the system instruction ──`,
+    shadowing,
+    '',
+    '(then one text part per line, each followed by your recording of it)',
   ].join('\n');
 }
 
@@ -375,8 +512,8 @@ function draftSettings() {
     targetLanguage: $('set-language').value.trim() || s.targetLanguage,
     learnerLevel: $('set-level').value.trim() || s.learnerLevel,
     languageNote: $('set-note').value,
-    textModel: $('set-textmodel').value.trim() || s.textModel,
-    ttsModel: $('set-ttsmodel').value.trim() || s.ttsModel,
+    shadowSounds: $('set-shadow-sounds').value,
+    shadowItems: Number($('set-shadow-items').value) || s.shadowItems,
     sentenceWords: {
       min: Number($('set-wmin').value) || s.sentenceWords.min,
       max: Number($('set-wmax').value) || s.sentenceWords.max,
@@ -384,38 +521,345 @@ function draftSettings() {
     prompts: {
       sentence: $('set-prompt-sentence').value,
       speech: $('set-prompt-speech').value,
+      shadowing: $('set-prompt-shadowing').value,
     },
   };
 }
 
+/* ── the models, and what each one does ──────────────────────────────── */
+
+/* Which <select> carries which job. defaults.js names the jobs; this is the
+   only place that knows what they look like on the page. */
+const ROLE_FIELD = {
+  textModel: 'set-textmodel',
+  ttsModel: 'set-ttsmodel',
+  shadowModel: 'set-shadowmodel',
+};
+
+/* A row typed into but not yet stored. A model with no id is not a model, so
+   Add a model cannot write one into the settings — it puts an empty row on the
+   page and waits to see what is typed in it. */
+let draftRow = false;
+
+/* What the catalogue looked like when it was last drawn, so a settings change
+   that leaves the models alone — a language edit, a deck tick — does not
+   touch the rows at all. */
+let drawnModels = '';
+
+function wireModels() {
+  const list = $('model-list');
+  list.addEventListener('change', onModelEdit);
+  list.addEventListener('click', onModelClick);
+
+  $('model-add').addEventListener('click', () => {
+    draftRow = true;
+    renderModels();
+    const rows = list.querySelectorAll('input[data-k="id"]');
+    const last = rows[rows.length - 1];
+    if (last) last.focus();
+    setModelStatus('Type the model id exactly as Google spells it, then give it its limits.', '');
+  });
+
+  for (const [key] of MODEL_ROLES) {
+    $(ROLE_FIELD[key]).addEventListener('change', async (e) => {
+      await store.saveSettings({ [key]: e.target.value });
+      renderPreview();
+    });
+  }
+}
+
+/* An id, a per-minute limit or a per-day limit, committed on blur. The three
+   are one handler because they are one row: the limits belong to whatever id
+   is in front of them, and the id is what decides whether the row exists. */
+async function onModelEdit(e) {
+  const input = e.target;
+  const row = input.closest('.model-row');
+  if (!row || !input.dataset.k) return;
+  const at = Number(row.dataset.at);
+  const s = store.state.settings;
+  const models = s.models.map((m) => ({ ...m }));
+  /* The draft row sits one past the end of the stored list. */
+  const isDraft = at >= models.length;
+
+  if (input.dataset.k !== 'id') {
+    if (isDraft) return;
+    const value = Math.max(0, Math.round(Number(input.value) || 0));
+    models[at] = { ...models[at], [input.dataset.k]: value };
+    await store.saveSettings({ models });
+    renderModels(true);
+    setModelStatus(describeLimits(models[at]), 'is-ok');
+    return;
+  }
+
+  const id = input.value.trim();
+  const clash = models.some((m, i) => i !== at && m.id === id);
+
+  if (!id) {
+    draftRow = false;
+    renderModels(true);
+    setModelStatus(isDraft
+      ? 'Nothing added — the row was left empty.'
+      : 'A model has to have an id, so that one is unchanged. Use × to remove it.',
+    isDraft ? '' : 'is-warn');
+    return;
+  }
+  if (clash) {
+    renderModels(true);
+    setModelStatus(`${id} is already in the list. A model is entered once and can do as many jobs as you like — give it another job below rather than adding it twice.`, 'is-warn');
+    return;
+  }
+
+  if (isDraft) {
+    draftRow = false;
+    models.push({ id, rpm: 0, rpd: 0 });
+    await store.saveSettings({ models });
+    renderModels(true);
+    setModelStatus(`Added ${id}. It is unlimited until you give it limits, and idle until you give it a job below.`, 'is-ok');
+    return;
+  }
+
+  /* A rename. The jobs follow it: it is the same model, newly spelt, and a job
+     left pointing at the old spelling would name a model nobody has. */
+  const was = models[at].id;
+  if (was === id) return;
+  const moved = rolesUsing(s, was);
+  models[at] = { ...models[at], id };
+  const patch = { models };
+  for (const [key] of MODEL_ROLES) if (s[key] === was) patch[key] = id;
+  await store.saveSettings(patch);
+  renderModels(true);
+  setModelStatus(moved.length
+    ? `Renamed ${was} to ${id}. ${sentenceList(moved)} moved with it.`
+    : `Renamed ${was} to ${id}.`, 'is-ok');
+}
+
+async function onModelClick(e) {
+  const btn = e.target.closest('.model-drop');
+  if (!btn) return;
+  const at = Number(btn.closest('.model-row').dataset.at);
+  const s = store.state.settings;
+  const models = s.models.map((m) => ({ ...m }));
+  if (at >= models.length) {
+    draftRow = false;
+    renderModels(true);
+    setModelStatus('Nothing added.', '');
+    return;
+  }
+  const model = models[at];
+  /* A job pointing at a model nobody has is the one state the catalogue must
+     not reach, so a model in use is kept and the reason is said out loud.
+     Because every job always names a listed model, this is also what stops the
+     list from being emptied. */
+  const jobs = rolesUsing(s, model.id);
+  if (jobs.length) {
+    setModelStatus(`${model.id} is doing ${sentenceList(jobs).toLowerCase()}. Give ${jobs.length === 1 ? 'that job' : 'those jobs'} to another model first.`, 'is-warn');
+    return;
+  }
+  models.splice(at, 1);
+  await store.saveSettings({ models });
+  renderModels(true);
+  setModelStatus(`Removed ${model.id}. What it has already spent is still counted under Call budget until it ages out.`, 'is-ok');
+}
+
+/* `force` redraws even when nothing in the settings moved — which is exactly
+   what a refused edit needs, since the point is to put back the value the
+   settings still hold. */
+function renderModels(force = false) {
+  const s = store.state.settings;
+  const list = $('model-list');
+  const signature = JSON.stringify([s.models, draftRow, MODEL_ROLES.map(([k]) => s[k])]);
+
+  if (force || signature !== drawnModels) {
+    const caret = heldCaret(list);
+    list.innerHTML = [
+      '<div class="model-row model-head" aria-hidden="true">'
+        + '<span>Model id</span><span>Calls / min</span><span>Calls / day</span><span></span></div>',
+      ...s.models.map((m, at) => modelRow(m, at, rolesUsing(s, m.id))),
+      ...(draftRow ? [modelRow({ id: '', rpm: 0, rpd: 0 }, s.models.length, [])] : []),
+    ].join('');
+    drawnModels = signature;
+    restoreCaret(list, caret);
+  }
+
+  const used = new Set(MODEL_ROLES.map(([key]) => s[key]));
+  $('models-hint').textContent = s.models.length === used.size
+    ? `${plural(s.models.length, 'model')}, all in use`
+    : `${plural(s.models.length, 'model')}, ${used.size} in use`;
+
+  /* The standing description of the list. An edit says what it did instead,
+     after its save has emitted and been drawn — so the last thing written
+     here is the last thing that happened. */
+  setModelStatus(describeCatalogue(s), '');
+  renderRoles();
+}
+
+function describeCatalogue(s) {
+  const idle = s.models.filter((m) => !rolesUsing(s, m.id).length).map((m) => m.id);
+  if (idle.length) {
+    return `${sentenceList(idle)} ${idle.length === 1 ? 'is' : 'are'} listed but doing no job`
+      + `, which costs nothing — give ${idle.length === 1 ? 'it one' : 'them one'} below, or remove ${idle.length === 1 ? 'it' : 'them'}.`;
+  }
+  const counted = s.models.filter((m) => m.rpd);
+  if (counted.length < s.models.length) {
+    return `${plural(s.models.length, 'model')}, all in use, not all of them counted here.`;
+  }
+  const total = counted.reduce((n, m) => n + m.rpd, 0);
+  return `${plural(s.models.length, 'model')}, all in use, ${total} calls a day between them — each model's allowance is its own.`;
+}
+
+/* A rebuilt row is a new element, so the field someone had moved on to would
+   otherwise lose focus mid-edit. It is found again by which row and which
+   column it was, which survives everything but that row being removed. */
+function heldCaret(list) {
+  const el = document.activeElement;
+  if (!list.contains(el) || !el.dataset || !el.dataset.k) return null;
+  return { at: el.closest('.model-row').dataset.at, k: el.dataset.k };
+}
+
+function restoreCaret(list, caret) {
+  if (!caret) return;
+  const el = list.querySelector(`.model-row[data-at="${caret.at}"] input[data-k="${caret.k}"]`);
+  if (el) el.focus();
+}
+
+function modelRow(model, at, jobs) {
+  const id = escapeAttr(model.id);
+  return `<div class="model-row" data-at="${at}">
+    <label class="model-id">
+      <input type="text" data-k="id" value="${id}" spellcheck="false" autocomplete="off"
+             placeholder="gemini-3.6-flash" aria-label="Model id">
+      <em class="model-jobs${jobs.length ? '' : ' is-idle'}">${jobs.length ? jobs.join(' · ') : (model.id ? 'no job' : 'new model')}</em>
+    </label>
+    <label class="model-rpm"><span>/ min</span>
+      <input type="number" data-k="rpm" min="0" value="${model.rpm}" aria-label="Calls per minute${model.id ? ` for ${id}` : ''}">
+    </label>
+    <label class="model-rpd"><span>/ day</span>
+      <input type="number" data-k="rpd" min="0" value="${model.rpd}" aria-label="Calls per day${model.id ? ` for ${id}` : ''}">
+    </label>
+    <button class="model-drop" type="button" aria-label="Remove ${id || 'this row'}"
+            title="${jobs.length ? `${escapeAttr(sentenceList(jobs))} run${jobs.length > 1 ? '' : 's'} on this model — give that job to another one first` : 'Remove this model'}"${jobs.length ? ' disabled' : ''}>&times;</button>
+  </div>`;
+}
+
+function renderRoles() {
+  const s = store.state.settings;
+  const options = s.models
+    .map((m) => `<option value="${escapeAttr(m.id)}">${escapeAttr(m.id)}</option>`)
+    .join('');
+  for (const [key] of MODEL_ROLES) {
+    const sel = $(ROLE_FIELD[key]);
+    if (sel.innerHTML !== options) sel.innerHTML = options;
+    sel.value = s[key];
+  }
+  $('roles-hint').textContent =
+    `${plural(MODEL_ROLES.length, 'job')} across ${plural(new Set(MODEL_ROLES.map(([k]) => s[k])).size, 'model')}`;
+
+  /* Which models are doing more than one job, said plainly: it is the point of
+     the catalogue, and the one thing three dropdowns on their own hide. */
+  const shared = s.models
+    .map((m) => [m, rolesUsing(s, m.id)])
+    .filter(([, jobs]) => jobs.length > 1)
+    .map(([m, jobs]) => `${sentenceList(jobs).toLowerCase()} both run on ${m.id}, out of its one allowance`);
+
+  const el = $('roles-status');
+  if (!/tts|speech|audio/i.test(s.ttsModel)) {
+    /* A guess, and said as one — but the wrong model here is the expensive
+       mistake to make quietly: only the TTS models return audio at all. */
+    el.textContent = `${s.ttsModel} does not look like a speech model. Only Google's TTS models return audio, so the dictation tab would get a text reply it cannot play.`;
+    el.className = 'status is-warn';
+    return;
+  }
+  el.textContent = shared.length
+    ? `${capitalise(shared.join('; '))}.`
+    : 'Every job is on a model of its own, so none of them can spend another’s budget.';
+  el.className = 'status is-ok';
+}
+
+function describeLimits(model) {
+  const per = (n, unit) => (n ? `${n} per ${unit}` : `unlimited per ${unit}`);
+  return `${model.id}: ${per(model.rpm, 'minute')}, ${per(model.rpd, 'day')}.`;
+}
+
+function setModelStatus(text, cls) {
+  const el = $('models-status');
+  el.textContent = text;
+  el.className = 'status ' + (cls || '');
+}
+
+/* "Text", "Text and Speech", "Text, Speech and Shadowing". */
+function sentenceList(items) {
+  if (items.length <= 1) return items[0] || '';
+  return `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`;
+}
+
+function capitalise(text) {
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
 /* ── budget ──────────────────────────────────────────────────────────── */
 
+/* One line per model, not per job: two jobs on one model run one counter
+   down together, and a budget page that showed them apart would be showing
+   the same calls twice. Redrawn every second, so it is written into a string
+   first and only touched when something in it actually moved. */
+let drawnUsage = '';
+
 function renderQuota() {
-  const q = store.quotaReport();
   const s = store.state.settings;
-  const line = (label, u) =>
-    `${label} ${u.usedDay}/${u.rpd || '∞'} today, ${u.usedMinute}/${u.rpm || '∞'} this minute`;
-  const parts = [line('text', q.text), line('speech', q.tts)];
-  if (q.retryAfter > 0) parts.push(`blocked for ${formatWait(q.retryAfter)}`);
+  const q = store.quotaReport();
+
+  const html = s.models.map((m) => {
+    const u = store.limiter.usage(m.id, m.rpm, m.rpd);
+    const jobs = rolesUsing(s, m.id);
+    const bits = [
+      `<span class="usage-num">${u.usedDay}/${u.rpd || '∞'} today</span>`,
+      `<span class="usage-num">${u.usedMinute}/${u.rpm || '∞'} this minute</span>`,
+    ];
+    if (u.retryAfter > 0) bits.push(`<span class="usage-num">free in ${formatWait(u.retryAfter)}</span>`);
+    return `<div class="usage-row${u.retryAfter > 0 ? ' is-blocked' : ''}">`
+      + `<span class="usage-id">${escapeAttr(m.id)}`
+      + `<span class="usage-jobs"> ${jobs.length ? ' · ' + jobs.join(' · ') : ' · idle'}</span></span>`
+      + bits.join('')
+      + '</div>';
+  }).join('');
+
+  if (html !== drawnUsage) {
+    $('quota-usage').innerHTML = html;
+    drawnUsage = html;
+  }
+
+  /* The two things the budget is actually asked: how many more dictation
+     cards, and how many more shadowing sets. A card costs a text call and a
+     speech call; a set costs one shadowing call however many lines it holds. */
+  const parts = [
+    q.cardsLeftToday === null
+      ? 'new cards unlimited'
+      : `${plural(q.cardsLeftToday, 'new card')} left today`,
+    q.shadow.leftDay === null
+      ? 'shadowing sets unlimited'
+      : `${plural(q.shadow.leftDay, 'shadowing set')} left today`,
+  ];
+  if (q.retryAfter > 0) parts.push(`new cards blocked for ${formatWait(q.retryAfter)}`);
 
   const el = $('quota-status');
   el.textContent = parts.join('  ·  ');
   el.className = 'status ' + (q.retryAfter > 0 ? 'is-bad' : 'is-ok');
   $('quota-hint').textContent = q.cardsLeftToday === null
     ? 'unlimited'
-    : `${q.cardsLeftToday} new card${q.cardsLeftToday === 1 ? '' : 's'} left`;
-  void s;
+    : `${plural(q.cardsLeftToday, 'new card')} left`;
 }
 
-/* ── read-aloud voice ─────────────────────────────────────────────────── */
+/* ── the read-aloud voice ────────────────────────────────────────────── */
 
+/* The browser's own voices, used by the Typing tab. Nothing here touches
+   Gemini or the API budget — see speech.js. */
 function wireSpeech() {
   $('set-speech-voice').addEventListener('change', (e) => {
     store.saveSettings({ speechVoice: e.target.value });
   });
   $('speech-sample').addEventListener('click', () => {
     /* A word from the deck being learnt says more than a stock phrase. */
-    const card = store.state.cards.find((c) => c.front) || null;
+    const card = store.practiceCards().find((c) => c.front) || null;
     const text = card ? card.front.replace(/\([^)]*\)/g, ' ') : 'Xin chào';
     speech.speak(text, speech.languageCode(store.state.settings.targetLanguage), { voice: store.state.settings.speechVoice });
   });
@@ -460,7 +904,61 @@ function escapeAttr(s) {
   return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
 }
 
-/* ── voices ──────────────────────────────────────────────────────────── */
+/* ── shadowing ───────────────────────────────────────────────────────── */
+
+function wireShadowing() {
+  for (const [id, key] of [['set-shadow-cards', 'cards'], ['set-shadow-bank', 'bank']]) {
+    $(id).addEventListener('change', (e) => {
+      /* Both off is a legal state here, unlike the voices or the ticked decks:
+         "draw from nothing" has an honest answer — there is nothing to
+         practise — and the tab says exactly that rather than quietly drawing
+         from a source nobody asked for. */
+      store.saveSettings({
+        shadowSources: { ...store.state.settings.shadowSources, [key]: e.target.checked },
+      });
+    });
+  }
+
+  $('shadow-wipe').addEventListener('click', async () => {
+    const rows = store.state.shadowSessions || [];
+    if (!rows.length) {
+      setShadowStatus('There are no recordings to delete.', 'is-warn');
+      return;
+    }
+    const btn = $('shadow-wipe');
+    btn.disabled = true;
+    const n = await store.deleteAllSessions();
+    btn.disabled = false;
+    setShadowStatus(`Deleted ${plural(n, 'set')} and every recording in them. The sentence bank is untouched.`, 'is-ok');
+  });
+
+  store.subscribe('shadow', renderShadowing);
+}
+
+function renderShadowing() {
+  const s = store.state.settings;
+  const src = s.shadowSources || {};
+  $('set-shadow-cards').checked = !!src.cards;
+  $('set-shadow-bank').checked = !!src.bank;
+
+  const on = [src.cards && 'flashcards', src.bank && 'the sentence bank'].filter(Boolean);
+  $('shadow-hint').textContent = on.length ? on.join(' and ') : 'no source ticked';
+
+  const rows = store.state.shadowSessions || [];
+  const takes = rows.reduce((sum, r) => sum + (r.recorded || 0), 0);
+  $('shadow-wipe').disabled = !rows.length;
+  setShadowStatus(rows.length
+    ? `${plural(rows.length, 'set')} kept, ${plural(takes, 'recording')} in all.`
+    : 'No sets recorded yet.', rows.length ? 'is-ok' : '');
+}
+
+function setShadowStatus(text, cls) {
+  const el = $('shadow-status');
+  el.textContent = text;
+  el.className = 'status ' + (cls || '');
+}
+
+/* ── the dictation voices ────────────────────────────────────────────── */
 
 function wireVoices() {
   $('voice-grid').addEventListener('change', (e) => {

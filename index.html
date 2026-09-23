@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Language Study</title>
-<meta name="description" content="Flashcards, typing practice and AI dictation for any language. Your own API key, your own folder, no accounts and no server.">
+<meta name="description" content="Flashcards, typing practice and AI dictation for any language. Your own API key, your own files, no accounts and no server.">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect width='16' height='16' fill='%230f1117'/><rect x='3' y='3' width='10' height='10' fill='%23d4b455'/></svg>">
 <link rel="stylesheet" href="css/app.css">
 </head>
@@ -21,6 +21,7 @@
   <button class="tab" role="tab" id="tab-flashcards" data-tab="flashcards" aria-selected="false" aria-controls="panel-flashcards">Flashcards</button>
   <button class="tab" role="tab" id="tab-typing" data-tab="typing" aria-selected="false" aria-controls="panel-typing">Typing</button>
   <button class="tab" role="tab" id="tab-dictation" data-tab="dictation" aria-selected="false" aria-controls="panel-dictation">Dictation</button>
+  <button class="tab" role="tab" id="tab-shadowing" data-tab="shadowing" aria-selected="false" aria-controls="panel-shadowing">Shadowing</button>
 </nav>
 
 <main>
@@ -30,32 +31,42 @@
 <div class="wrap">
 
   <div class="block">
-    <div class="block-head"><h2>Your data</h2><span class="hint" id="folder-hint"></span></div>
+    <div class="block-head"><h2>Where your data lives</h2><span class="hint" id="store-hint"></span></div>
     <div class="block-body">
-      <p class="note">Everything you practise stays on this device: decks, settings, and the audio the dictation tab generates. Nothing is uploaded and there is no account. By default it is kept in this browser's storage. In Chrome or Edge you can choose a folder instead, so the files sit on disk where you can see, copy and back them up.</p>
-      <div class="row" id="folder-row">
-        <button class="btn btn--primary" id="folder-connect">Choose folder</button>
-        <button class="btn" id="folder-disconnect" hidden>Disconnect</button>
-        <button class="btn" id="folder-to-browser" hidden>Move into browser storage</button>
-      </div>
-      <p class="note">A backup is a zip laid out exactly like the folder. Unzip it anywhere and Chrome can open it as a data folder, or bring it back here with Restore.</p>
+      <p class="note">Your decks, your settings and the audio the dictation tab generates all stay on this device. Nothing is uploaded and there is no account. <strong>Saving starts immediately, in this browser's own storage</strong> — you need not set anything up. It is kept across reloads, but only for as long as this page's site data lasts.</p>
+      <p class="note"><strong>Chrome and Edge</strong> can do better: pick a folder and the same files sit on disk where you can see them, copy them, and put them inside Drive or Dropbox for sync. Choosing a folder moves everything already saved into it; disconnecting moves it back. <strong>Firefox and Safari</strong> have no folder picker, so browser storage is the whole story there.</p>
       <div class="row">
-        <button class="btn btn--sm" id="backup-download">Download backup (.zip)</button>
-        <button class="btn btn--sm" id="folder-export" hidden>Download current deck</button>
-        <span class="spacer"></span>
-        <button class="btn btn--sm" id="restore-zip">Restore from zip…</button>
-        <button class="btn btn--sm" id="restore-dir">Restore from folder…</button>
-        <input type="file" id="restore-zip-input" accept=".zip,application/zip" hidden>
-        <input type="file" id="restore-dir-input" webkitdirectory multiple hidden>
+        <button class="btn btn--primary" id="store-choose">Choose folder</button>
+        <button class="btn" id="store-disconnect" hidden>Disconnect</button>
+      </div>
+      <p class="note"><strong>One file holds a whole setup:</strong> every deck and all your settings, ready to keep somewhere safe, carry to another machine, or bring back after a browser clears its storage. The API key is left out on purpose, and so is the dictation audio — it is a cache the Dictation tab refills, not something to mail around.</p>
+      <div class="row">
+        <button class="btn" id="store-export-all">Export everything</button>
+        <button class="btn" id="store-import">Import a bundle…</button>
+        <input type="file" id="store-import-file" accept="application/json,.json" hidden>
+        <button class="btn btn--sm" id="store-export" hidden>Download current deck</button>
+      </div>
+      <p class="note"><strong>A backup is the whole store, audio and all:</strong> a zip laid out exactly like the data folder. It is the one copy that keeps the dictation bank, which cost real API calls to make. Unzip it anywhere and Chrome can open it as a data folder; or bring it straight back with Restore, which overwrites any file of the same name.</p>
+      <div class="row">
+        <button class="btn" id="backup-download">Download backup (.zip)</button>
+        <button class="btn" id="backup-restore">Restore from a backup…</button>
+        <input type="file" id="backup-restore-file" accept=".zip,application/zip" hidden>
+      </div>
+      <div class="banner" id="import-preview" hidden>
+        <p class="note" id="import-note"></p>
+        <div class="row">
+          <button class="btn btn--primary btn--sm" id="import-confirm">Import</button>
+          <button class="btn btn--sm" id="import-cancel">Cancel</button>
+        </div>
       </div>
     </div>
-    <div class="status" id="folder-status">Starting…</div>
+    <div class="status" id="store-status">Working out where this browser can save.</div>
   </div>
 
   <div class="block">
-    <div class="block-head"><h2>Gemini API key</h2><span class="hint">needed for dictation only</span></div>
+    <div class="block-head"><h2>Gemini API key</h2><span class="hint">needed for dictation and shadowing</span></div>
     <div class="block-body">
-      <p class="note">Dictation calls the Gemini API directly from this page with <strong>your</strong> key. It is stored in this browser's local storage, never in the data folder, so it cannot end up in a git commit, and it is sent to nobody but Google. Get one free at <code>aistudio.google.com/apikey</code>.</p>
+      <p class="note">Dictation calls the Gemini API directly from this page with <strong>your</strong> key. It is stored in this browser's local storage, never alongside your decks, so it cannot end up in a git commit, and it is sent to nobody but Google. Get one free at <code>aistudio.google.com/apikey</code>.</p>
       <label class="field"><span>API key</span>
         <input type="password" id="api-key" placeholder="AIza…" autocomplete="off" spellcheck="false">
       </label>
@@ -64,6 +75,40 @@
         <span class="note" id="key-test-note">Spends one text-model call from today's budget.</span>
       </div>
     </div>
+  </div>
+
+  <div class="block">
+    <div class="block-head"><h2>Models</h2><span class="hint" id="models-hint"></span></div>
+    <div class="block-body">
+      <p class="note">Every Gemini model you use, listed once each. <strong>The limits belong to the model, not to the job it is doing</strong> — Google counts calls per model, so a model given two jobs below draws both of them from the one allowance you enter here, and typing it twice would only be a way of lying to yourself about what is left.</p>
+      <div class="model-list" id="model-list"></div>
+      <div class="row">
+        <button class="btn btn--sm" id="model-add">Add a model</button>
+        <span class="note">A model doing a job cannot be removed; give the job to something else first.</span>
+      </div>
+      <p class="note"><strong>Calls / min</strong> and <strong>calls / day</strong> are counted in this browser before a request goes out, so you never discover a limit by being refused by Google. The windows roll over the last minute and the last 24 hours rather than resetting at midnight, so the day's budget trickles back an hour at a time. <strong>0 means unlimited</strong> — the right answer for a paid key, and the one case where Google gets to be the one who says no. The defaults are the free tier.</p>
+    </div>
+    <div class="status" id="models-status"></div>
+  </div>
+
+  <div class="block">
+    <div class="block-head"><h2>What each model does</h2><span class="hint" id="roles-hint"></span></div>
+    <div class="block-body">
+      <div class="grid">
+        <label class="field"><span>Text — writes the sentence</span>
+          <select id="set-textmodel"></select>
+        </label>
+        <label class="field"><span>Speech — reads it aloud</span>
+          <select id="set-ttsmodel"></select>
+        </label>
+        <label class="field"><span>Shadowing — listens to you</span>
+          <select id="set-shadowmodel"></select>
+        </label>
+      </div>
+      <p class="note">Pick the same model for two jobs and they share its allowance, exactly as they already do at Google's end. Speech is the one that really has to differ: only the TTS models return audio.</p>
+      <p class="note">If a model ID is wrong the API's own error is shown verbatim, so a 404 here means exactly that. There is deliberately no hidden fallback list: the model that answers is the one you typed, and nothing quietly spends on another.</p>
+    </div>
+    <div class="status" id="roles-status"></div>
   </div>
 
   <div class="block">
@@ -90,30 +135,35 @@
   </div>
 
   <div class="block">
-    <div class="block-head"><h2>Models</h2><span class="hint">Gemini model IDs</span></div>
+    <div class="block-head"><h2>Shadowing</h2><span class="hint" id="shadow-hint"></span></div>
     <div class="block-body">
-      <div class="grid">
-        <label class="field"><span>Text model — writes the sentence</span>
-          <input type="text" id="set-textmodel" spellcheck="false">
-        </label>
-        <label class="field"><span>Speech model — reads it aloud</span>
-          <input type="text" id="set-ttsmodel" spellcheck="false">
-        </label>
+      <p class="note">A set is some lines to read aloud and record. Both sources are drawn from what you already have, and <strong>nothing on the Shadowing tab ever writes a new sentence</strong> — the only thing that does is the Dictation tab's <em>New sentence</em> button, and both tabs share one bank, so whatever it makes is immediately shadowable.</p>
+      <div class="row">
+        <label class="voice" style="flex:1 1 240px"><input type="checkbox" id="set-shadow-cards"><span>Flashcards</span><em>read by your device's voice</em></label>
+        <label class="voice" style="flex:1 1 240px"><input type="checkbox" id="set-shadow-bank"><span>Sentence bank</span><em>read by the Gemini recording</em></label>
       </div>
-      <p class="note">If a model ID is wrong the API's own error is shown verbatim, so a 404 here means exactly that.</p>
+      <div class="grid grid--tight">
+        <label class="field"><span>Lines per set</span><input type="number" id="set-shadow-items" min="1" max="30"></label>
+      </div>
+      <p class="note">One set costs <strong>one call</strong>, however many lines are in it, because every recording goes up together. A set is whatever is actually available up to the number above, and the tab says so when it comes up short. That call is spent on whichever model the shadowing job is given above, out of that model's own allowance.</p>
+      <label class="field"><span>Sounds to listen for — the one thing to change when you change language</span>
+        <input type="text" id="set-shadow-sounds" placeholder="nasal vowels, u vs ou, the r, liaison, final consonants">
+      </label>
+      <p class="note">Named in the prompt so the feedback can say <em>which</em> sound went where, rather than that something was unclear. Leave it empty and the prompt simply drops the clause. For French you would name nasal vowels and liaison; for Mandarin, tone contours and retroflex initials.</p>
+      <p class="note"><strong>Shadowing prints the sentence in full</strong>, which a dictation deliberately hides. Sets prefer sentences you have already typed in Dictation, and Dictation prefers ones you have not yet shadowed, so the two tabs stay out of each other's way — but a sentence you shadow first is one whose dictation you have already read.</p>
+      <div class="row">
+        <button class="btn btn--sm btn--danger" id="shadow-wipe">Delete all recordings</button>
+        <span class="note" id="shadow-wipe-note">Removes every past set and every voice recording in them. The sentence bank is untouched.</span>
+      </div>
     </div>
+    <div class="status" id="shadow-status"></div>
   </div>
 
   <div class="block">
     <div class="block-head"><h2>Call budget</h2><span class="hint" id="quota-hint"></span></div>
     <div class="block-body">
-      <p class="note">Counted in this browser before a request goes out, so you never discover the limit by being refused by Google. Windows roll over the last minute and the last 24 hours. <strong>0 means unlimited.</strong> The defaults are Google's free tier.</p>
-      <div class="grid grid--tight">
-        <label class="field"><span>Text / min</span><input type="number" id="set-trpm" min="0"></label>
-        <label class="field"><span>Text / day</span><input type="number" id="set-trpd" min="0"></label>
-        <label class="field"><span>Speech / min</span><input type="number" id="set-srpm" min="0"></label>
-        <label class="field"><span>Speech / day</span><input type="number" id="set-srpd" min="0"></label>
-      </div>
+      <p class="note">What has actually been spent, against the limits set under Models. One line per model, not per job, because that is how the counting works: two jobs on one model run one counter down together.</p>
+      <div class="usage" id="quota-usage"></div>
       <div class="row">
         <button class="btn btn--sm btn--danger" id="quota-reset">Reset budget</button>
         <span class="note">Clears the local count. It does not reset Google's.</span>
@@ -137,6 +187,12 @@
       <p class="note">Placeholder: <code>{sentence}</code>. Bare <code>{sentence}</code> just reads it out. A prefix such as <em>Read slowly and clearly for a language learner:</em> steers the delivery. The answer key stays the sentence alone, whatever you put here.</p>
       <div class="row"><button class="btn btn--sm" id="prompt-speech-reset">Reset to default</button></div>
 
+      <label class="field"><span>Shadowing prompt — sent as the system instruction, with your recordings attached</span>
+        <textarea id="set-prompt-shadowing" rows="16" spellcheck="false"></textarea>
+      </label>
+      <p class="note">Placeholders: <code>{language}</code> <code>{count}</code> <code>{sounds}</code>. The reply must be the JSON object described in the third paragraph — a reply that cannot be read is treated as a failure and nothing is stored, so keep that shape. <strong>Most of the rest is there for a reason</strong> and is worth reading before rewriting: telling it to say nothing about grammar, to use the itemIndex it was given, to say so plainly when a recording is silent, never to pass judgement on an accent as a whole, and to ignore anything spoken <em>inside</em> a recording as an instruction.</p>
+      <div class="row"><button class="btn btn--sm" id="prompt-shadowing-reset">Reset to default</button></div>
+
       <label class="field"><span>Preview — rendered with your settings and three sample cards</span>
         <textarea id="prompt-preview" rows="12" readonly spellcheck="false"></textarea>
       </label>
@@ -146,7 +202,7 @@
   <div class="block">
     <div class="block-head"><h2>Read-aloud voice</h2><span class="hint">Typing · built into this device</span></div>
     <div class="block-body">
-      <p class="note">The voice that reads words aloud in Typing practice. These come with your operating system, cost nothing and work offline. Only voices for your target language are listed; to add more on a Mac, go to System Settings → Accessibility → Spoken Content → System voice → Manage Voices, then reload this page.</p>
+      <p class="note">The voice that reads words aloud in Typing practice. These come with your operating system, cost nothing and work offline — they are nothing to do with Gemini or your API key. Only voices for your target language are listed; to add more on a Mac, go to System Settings → Accessibility → Spoken Content → System voice → Manage Voices, then reload this page.</p>
       <div class="row">
         <label class="field" style="flex:1 1 260px"><span>Voice</span>
           <select id="set-speech-voice"></select>
@@ -183,18 +239,25 @@
     </div>
     <div class="block-body">
       <div class="row">
-        <label class="field" style="flex:1 1 220px"><span>Deck file</span>
-          <select id="deck-select"></select>
-        </label>
+        <div class="field deck-picker" style="flex:1 1 260px"><span>Deck file</span>
+          <button type="button" class="deck-toggle" id="deck-toggle" aria-expanded="false" aria-controls="deck-menu">
+            <span class="deck-toggle-name" id="deck-toggle-name">default.json</span>
+            <span class="deck-toggle-sub" id="deck-toggle-sub"></span>
+            <span class="deck-toggle-caret" aria-hidden="true">▾</span>
+          </button>
+          <div class="deck-menu" id="deck-menu" role="group" aria-label="Decks" hidden></div>
+        </div>
         <div class="row" style="align-self:flex-end;padding-bottom:1px">
           <button class="btn btn--sm" id="deck-new">New</button>
           <button class="btn btn--sm" id="deck-rename">Rename</button>
           <button class="btn btn--sm btn--danger" id="deck-delete">Delete</button>
-          <button class="btn btn--sm" id="deck-open" title="Adds each chosen .json file as a new deck named after the file. Existing decks are never overwritten.">Import as new deck…</button>
-          <input type="file" id="deck-open-input" accept=".json,application/json" multiple hidden>
+          <button class="btn btn--sm" id="deck-import" title="Adds each chosen .json file as a new deck named after the file. Existing decks are never overwritten. Takes a deck file or a CLI watchlist.">Import as new deck…</button>
+          <input type="file" id="deck-import-file" accept=".json,application/json" multiple hidden>
         </div>
       </div>
-      <p class="note">You can keep as many decks as you like, one file each; Typing and Dictation practise whichever deck is selected here. This is the deck file itself: a JSON array, one object per card. <strong>front</strong> is the word in the language you are learning, <strong>back</strong> is its meaning; <strong>notes</strong> is optional. <strong>score</strong>, <strong>recent</strong> and <strong>last_seen</strong> are written by the practice tabs, so you can leave them out of a card you type by hand and they will be filled in.</p>
+      <p class="note">Open the deck menu and you get every deck you have, each with a <strong>tickbox</strong> in front of it. <strong>Ticking a deck puts its words into practice:</strong> the Typing and Dictation tabs draw from every ticked deck at once, and ignore the rest. Click a deck's <em>name</em> instead of its tickbox to open it in the editor below — opening a deck and practising it are separate things, so you can edit one deck while drilling another. At least one deck is always ticked; the last tick cannot be removed, because a practice tab with nothing to draw from has nothing to do.</p>
+      <p class="note">Dictation goes one step further: each sentence is written from the words of a <strong>single</strong> deck, never a mixture, and the audio is saved with the deck it came from and the <strong>learner level</strong> set in Settings at the time. That tag is what keeps a banked sentence in its lane — it only comes back up while its own deck is ticked — and it is a permanent record of the difficulty it was written at, even after you change that setting.</p>
+      <p class="note">Below is the deck file itself: a JSON array, one object per card. <strong>front</strong> is the word in the language you are learning, <strong>back</strong> is its meaning; <strong>notes</strong> is optional. <strong>score</strong>, <strong>recent</strong> and <strong>last_seen</strong> are written by the practice tabs, so you can leave them out of a card you type by hand and they will be filled in.</p>
       <textarea class="editor" id="deck-editor" spellcheck="false" aria-label="Deck contents as JSON"></textarea>
       <div class="row">
         <button class="btn btn--primary" id="deck-save">Save deck</button>
@@ -218,6 +281,7 @@
       <span class="hint" id="ty-pool"></span>
     </div>
     <div class="block-body">
+      <p class="note">Cards come from every deck ticked in the Flashcards tab, drawn together as one pool. Untick a deck there to take its words out of rotation without deleting anything.</p>
       <div class="row">
         <div class="seg" id="ty-scope" role="group" aria-label="Which cards to practise">
           <button data-scope="weak" aria-pressed="false">Weak</button>
@@ -260,6 +324,7 @@
       <span class="hint" id="dc-bank"></span>
     </div>
     <div class="block-body" id="dc-body">
+      <p class="note">Each sentence is built from the words of one deck — never a mixture — chosen from the decks ticked in the Flashcards tab. The audio is saved with that deck's name and the learner level from Settings beside it, so a banked sentence only comes back while its own deck is ticked, and always says what difficulty it was written at.</p>
       <div id="dc-gate"></div>
 
       <div id="dc-stage" hidden>
@@ -314,6 +379,70 @@
         <div id="dc-idle" class="gate" hidden></div>
       </div>
     </div>
+  </div>
+
+</div>
+</section>
+
+<!-- ── SHADOWING ─────────────────────────────────────────────── -->
+<section class="panel" id="panel-shadowing" role="tabpanel" aria-labelledby="tab-shadowing" hidden>
+<div class="wrap">
+
+  <div class="block">
+    <div class="block-head">
+      <h2>Shadowing</h2>
+      <span class="hint" id="sh-pool"></span>
+    </div>
+    <div class="block-body">
+      <p class="note">Lines from your own material, said back in your own voice. Play a line, then say it the way you heard it — the words are given to you, so what is being practised is how they <em>sound</em>: rhythm, where the stress falls, and the sounds of the language itself. <strong>Record a line as many times as you like</strong> and listen back before you move on; nothing is sent until you hand the set in.</p>
+      <p class="note">Sets are drawn from your <strong>flashcards</strong> and from the <strong>sentence bank</strong> — the same bank the Dictation tab fills, so a sentence written there is here the moment it exists, and one you record here stays playable there. Which of the two a set draws on is set in <strong>Settings → Shadowing</strong>.</p>
+      <div id="sh-gate"></div>
+
+      <div id="sh-stage" hidden>
+        <div class="row">
+          <div class="seg" id="sh-scope" role="group" aria-label="Which cards to draw on">
+            <button data-scope="weak" aria-pressed="false">Weak</button>
+            <button data-scope="developing" aria-pressed="false">+ Developing</button>
+            <button data-scope="all" aria-pressed="true">All</button>
+            <button data-scope="accents" aria-pressed="false" title="Words you last got right but with the wrong accents. A set built from these asks the model to listen for those marks in particular.">Accents</button>
+          </div>
+          <span class="spacer"></span>
+          <span class="quota" id="sh-quota"></span>
+        </div>
+
+        <div class="banner" id="sh-notice">
+          <strong>Your recordings are saved to disk.</strong> Every take is written into your data folder as you make it, and rides along in a backup. When you hand a set in, the audio is sent to Google with your API key to be listened to. Nothing is sent before that, and <strong>Delete all recordings</strong> in Settings removes the lot.
+        </div>
+
+        <div class="row">
+          <button class="btn btn--primary" id="sh-new">New set</button>
+          <button class="btn" id="sh-mic-test" title="Records five seconds and plays it straight back. Never saved, never uploaded.">Test the microphone</button>
+          <span class="note" id="sh-mic-note"></span>
+          <span class="spacer"></span>
+          <span class="note" id="sh-count"></span>
+        </div>
+
+        <div id="sh-error"></div>
+
+        <div class="card" id="sh-card" hidden>
+          <div class="card-body">
+            <div id="sh-lines"></div>
+            <div class="row" style="margin-top:14px">
+              <button class="btn btn--primary" id="sh-submit" hidden>Hand in</button>
+              <span class="note">One call carries every take you made. Nothing is scored — the feedback is prose.</span>
+            </div>
+            <div id="sh-feedback" style="margin-top:16px" hidden></div>
+          </div>
+        </div>
+
+        <div id="sh-idle" class="gate" hidden></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="block">
+    <div class="block-head"><h2>Past sets</h2><span class="hint" id="sh-history-hint"></span></div>
+    <div class="block-body" id="sh-history"></div>
   </div>
 
 </div>

@@ -3,16 +3,22 @@
    An answer is right only if the accents are right — that is the whole skill
    being drilled. But "right word, wrong accents" is a different mistake from
    "wrong word", and a learner needs to be told which one they made, so the
-   near miss gets its own verdict and the offending characters are marked.
-   It also flags the card, and the Accents filter drills just those.
+   near miss gets its own verdict, the offending characters are marked, and the
+   card is flagged for the Accents filter until it is typed exactly.
 
    Meanings are looser than words: there is more than one fair way to say
-   something in English. So a meaning is right if it matches the back or any
-   of the card's alternatives, and a miss can be accepted on the spot — which
-   records it as an alternative and turns the answer right. */
+   something in English. So a meaning is right if it matches the back or any of
+   the card's alternatives, and a miss can be accepted on the spot — which
+   records it as an alternative and turns the answer right.
+
+   With Read aloud on, a word that is the prompt is heard rather than read: it
+   stays hidden until you ask to see it, or until you answer. */
 
 import * as store from './store.js';
-import { pickWeighted, inScope, recordResult, amendLastToRight, addAlternative, meanings, stats, SCORE_LABEL } from './deck.js';
+import {
+  pickWeighted, inScope, recordResult, amendLastToRight, addAlternative, meanings,
+  stats, SCORE_LABEL,
+} from './deck.js';
 import * as speech from './speech.js';
 import { compareAnswer, compareMeaning, normalize, accentMarks, escapeHtml, scoreMark } from './text.js';
 
@@ -44,10 +50,18 @@ export function init() {
     next();
   });
 
+  $('ty-dir').addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-dir]');
+    if (!btn) return;
+    setSeg('ty-dir', 'dir', btn.dataset.dir);
+    store.saveSettings({ typingDirection: btn.dataset.dir });
+    next();
+  });
+
   $('ty-speak').addEventListener('click', () => {
     const on = !store.state.settings.typingSpeak;
     store.saveSettings({ typingSpeak: on });
-    /* No sound now, so a hidden word has to be shown. */
+    /* No sound from here on, so a hidden word has to be shown. */
     if (!on) { speech.stop(); showWord(); }
     renderSpeak();
   });
@@ -55,8 +69,9 @@ export function init() {
   speech.onVoicesChanged(renderSpeak);
   renderSpeak();
 
-  /* The card is re-rendered for every draw and its feedback for every answer,
-     so its buttons are handled here, once, rather than re-bound each time. */
+  /* The card is redrawn for every draw and its feedback for every answer, so
+     the buttons inside it are handled here, once, rather than rebound each
+     time something is rendered. */
   $('ty-card').addEventListener('click', (e) => {
     const hit = (sel) => e.target.closest(sel);
     if (hit('[data-say]')) say(true);
@@ -72,21 +87,14 @@ export function init() {
     else if (e.key === 'Escape') { e.preventDefault(); renderNotes(false); }
   });
 
-  $('ty-dir').addEventListener('click', (e) => {
-    const btn = e.target.closest('button[data-dir]');
-    if (!btn) return;
-    setSeg('ty-dir', 'dir', btn.dataset.dir);
-    store.saveSettings({ typingDirection: btn.dataset.dir });
-    next();
-  });
-
-  /* A card from a deck that is no longer loaded must not stay on screen: an
-     answer to it would be recorded on a card nothing saves. This happens on
-     every page load, when the stored deck replaces the starter deck the page
-     boots with, and whenever another deck is picked or the deck is edited. */
+  /* Redrawn when the pool changes under it: a card whose deck has just been
+     unticked, or which was edited out of the deck file, must not stay on
+     screen as the thing being asked. An answered card stays put — the
+     feedback on it is about what has already happened, and saving that answer
+     is itself what fired this. */
   store.subscribe('deck', () => {
     renderPool();
-    if (!current || !store.state.cards.includes(current)) next();
+    if (!current || (!answered && !pool().includes(current))) next();
   });
   next();
 }
@@ -94,7 +102,7 @@ export function init() {
 export function onShow() {
   const input = $('ty-input');
   if (input && !input.disabled) input.focus();
-  /* A card drawn while another tab was open was not read then. */
+  /* A card drawn while another tab was open was not read aloud then. */
   if (current && !answered && shownSide === 'front') say();
 }
 
@@ -104,14 +112,17 @@ function setSeg(id, key, value) {
   }
 }
 
+/* Every ticked deck at once — the Flashcards tab decides which those are. */
 function pool() {
-  return store.state.cards.filter((c) => inScope(c, scope));
+  return store.practiceCards().filter((c) => inScope(c, scope));
 }
 
 function renderPool() {
-  const p = pool();
-  $('ty-pool').textContent = `${p.length} of ${store.state.cards.length} cards in scope`;
-  const slips = store.state.cards.filter((c) => c.accent_slip).length;
+  const all = store.practiceCards();
+  const decks = store.practiceDecks();
+  $('ty-pool').textContent = `${pool().length} of ${all.length} cards in scope · `
+    + (decks.length === 1 ? `deck ${decks[0]}` : `${decks.length} decks ticked`);
+  const slips = all.filter((c) => c.accent_slip).length;
   $('ty-scope').querySelector('[data-scope="accents"]').textContent = slips ? `Accents (${slips})` : 'Accents';
 }
 
@@ -131,6 +142,7 @@ function next() {
 
   current = pickWeighted(p, 1)[0];
   answered = false;
+  last = null;
   const dir = store.state.settings.typingDirection;
   /* Accents live on the front, so that is always the side asked for when
      drilling them, whatever the direction setting says. */
@@ -154,6 +166,7 @@ function next() {
         ${squares(current.recent)}
         ${current.accent_slip ? '<span class="is-warn">accents slipped last time</span>' : ''}
         <span class="spacer"></span>
+        ${store.practiceDecks().length > 1 ? `<span>${escapeHtml(store.deckOf(current))}</span>` : ''}
         <span>${current.last_seen ? 'last seen ' + current.last_seen : 'new card'}</span>
       </div>
       <div class="card-body">
@@ -190,20 +203,44 @@ function next() {
   });
   input.focus();
   renderPrevious();
-  /* The word is on screen, so hear it now. When it is the answer, it waits
+  /* The word is on screen, so hear it now. When it is the answer it waits
      until the answer is in — see settle(). */
   if (shownSide === 'front') say();
 }
 
 /* Uncover a word hidden for listening. Harmless when nothing is hidden. */
 function showWord() {
-  const word = document.getElementById('ty-prompt');
+  const word = $('ty-prompt');
   if (!word || !word.hidden) return;
   word.hidden = false;
-  document.getElementById('ty-listen')?.remove();
+  $('ty-listen')?.remove();
   const label = document.querySelector('#ty-card .prompt-label');
   if (label) label.textContent = label.textContent.replace(/ — listen$/, '');
-  document.getElementById('ty-show-word')?.remove();
+  $('ty-show-word')?.remove();
+}
+
+function emptyState() {
+  const total = store.practiceCards().length;
+  const decks = store.practiceDecks();
+  const where = decks.length === 1 ? `the ticked deck (${escapeHtml(decks[0])})` : `the ${decks.length} ticked decks`;
+  if (!total) {
+    return `<div class="gate"><h3>No cards yet</h3>
+      <p>There is nothing in ${where}. Add cards in the Flashcards tab — it is a plain JSON list, and there is a three-card example already in it to copy the shape from — or tick another deck in the deck menu there.</p></div>`;
+  }
+  if (scope === 'accents') {
+    return `<div class="gate"><h3>No accent slips</h3>
+      <p>A word lands here when you type it with the right letters but the wrong accents, and leaves once you type it exactly. Nothing in ${where} is waiting right now.</p></div>`;
+  }
+  return `<div class="gate"><h3>Nothing in scope</h3>
+    <p>All ${total} cards in ${where} are stronger than this filter allows. Widen it to <strong>All</strong>, tick another deck in the Flashcards tab, or practise more to move cards down.</p></div>`;
+}
+
+function squares(recent) {
+  const list = Array.isArray(recent) ? recent : [];
+  const pad = Array(Math.max(0, 8 - list.length)).fill(null);
+  return '<span class="sq-row">' + [...pad, ...list]
+    .map((r) => `<i class="sq ${r === null ? 'sq--empty' : r ? 'sq--hit' : 'sq--miss'}"></i>`)
+    .join('') + '</span>';
 }
 
 /* ── speech ──────────────────────────────────────────────────────────── */
@@ -212,12 +249,12 @@ function targetCode() {
   return speech.languageCode(store.state.settings.targetLanguage);
 }
 
-/* Reads the current card's word. `asked` is a click on Listen again, which plays
-   even with Read aloud turned off. Bracketed notes are not read out. */
+/* Reads the current card's word. `asked` is a click on Listen again, which
+   plays even with Read aloud turned off. Bracketed notes are not read out. */
 function say(asked = false) {
   if (!current || (!asked && !store.state.settings.typingSpeak)) return;
-  /* Cards are drawn in the background too — on load, or when the deck
-     changes from another tab. Only speak to someone looking at this one. */
+  /* Cards are drawn in the background too — on load, or when the ticked decks
+     change from another tab. Only speak to someone looking at this one. */
   if ($('panel-typing').hidden) return;
   speech.speak(current.front.replace(/\([^)]*\)/g, ' '), targetCode(), { voice: store.state.settings.speechVoice });
 }
@@ -244,28 +281,6 @@ function renderSpeak() {
   for (const hear of document.querySelectorAll('#ty-card [data-say]')) hear.disabled = !voice;
 }
 
-function emptyState() {
-  const total = store.state.cards.length;
-  if (!total) {
-    return `<div class="gate"><h3>No cards yet</h3>
-      <p>Add some in the Flashcards tab — it is a plain JSON list, and there is a three-card example already in it to copy the shape from.</p></div>`;
-  }
-  if (scope === 'accents') {
-    return `<div class="gate"><h3>No accent slips</h3>
-      <p>A word lands here when you type it with the wrong accents, and leaves once you type it exactly. Nothing is waiting right now.</p></div>`;
-  }
-  return `<div class="gate"><h3>Nothing in scope</h3>
-    <p>All ${total} cards are stronger than this filter allows. Widen it to <strong>All</strong>, or practise more to move cards down.</p></div>`;
-}
-
-function squares(recent) {
-  const list = Array.isArray(recent) ? recent : [];
-  const pad = Array(Math.max(0, 8 - list.length)).fill(null);
-  return '<span class="sq-row">' + [...pad, ...list]
-    .map((r) => `<i class="sq ${r === null ? 'sq--empty' : r ? 'sq--hit' : 'sq--miss'}"></i>`)
-    .join('') + '</span>';
-}
-
 /* ── checking ────────────────────────────────────────────────────────── */
 
 function check() {
@@ -282,21 +297,19 @@ function check() {
   const ok = verdict === 'exact';
 
   /* Only a slip in the language being learnt counts: an accent missed while
-     typing the meaning is not what this list is for. */
+     typing the English meaning is not what this list is for. */
   const accentSlip = verdict === 'accent' && shownSide === 'back';
   const move = recordResult(current, ok, { accentSlip, typedFront: shownSide === 'back' });
   tally.total++;
   if (ok) tally.right++; else tally.wrong++;
-  $('ty-total').textContent = tally.total;
-  $('ty-right').textContent = tally.right;
-  $('ty-wrong').textContent = tally.wrong;
+  renderTally();
 
   settle(ok);
 
   $('ty-feedback').innerHTML = feedback(verdict, typed, expected, move);
   last = { typed, expected, before: move.before };
   justAnswered = { shown: current[shownSide], expected, typed, verdict, notes: current.notes };
-  store.cardAnswered();
+  store.cardAnswered(current);
 }
 
 /* Not knowing is a miss — it is recorded like any wrong answer, so the card
@@ -308,13 +321,18 @@ function reveal() {
   const move = recordResult(current, false, { typedFront: shownSide === 'back' });
   tally.total++;
   tally.wrong++;
-  $('ty-total').textContent = tally.total;
-  $('ty-wrong').textContent = tally.wrong;
+  renderTally();
   settle(false);
   $('ty-feedback').innerHTML = feedback('revealed', '', expected, move);
   last = null;
   justAnswered = { shown: current[shownSide], expected, typed: '', verdict: 'revealed', notes: current.notes };
-  store.cardAnswered();
+  store.cardAnswered(current);
+}
+
+function renderTally() {
+  $('ty-total').textContent = tally.total;
+  $('ty-right').textContent = tally.right;
+  $('ty-wrong').textContent = tally.wrong;
 }
 
 /* Lock the card once it has a verdict, and hand the keyboard to Next. */
@@ -345,14 +363,13 @@ function acceptAnswer() {
   const move = { ...amendLastToRight(current), before: last.before };
   tally.right++;
   tally.wrong--;
-  $('ty-right').textContent = tally.right;
-  $('ty-wrong').textContent = tally.wrong;
+  renderTally();
   $('ty-input').className = 'answer-input is-ok';
   $('ty-feedback').innerHTML = feedback('accepted', last.typed, last.expected, move);
-  justAnswered.verdict = 'exact';
+  if (justAnswered) justAnswered.verdict = 'exact';
   last = null;
   $('ty-next').focus();
-  store.cardAnswered();
+  store.cardAnswered(current);
 }
 
 function feedback(verdict, typed, expected, move) {
@@ -369,9 +386,7 @@ function feedback(verdict, typed, expected, move) {
 
   let head;
   if (verdict === 'revealed') {
-    const others = shownSide === 'front' && (current.alternatives || []).length
-      ? `<div class="typed-back" style="margin-top:6px">also accepted: ${current.alternatives.map(escapeHtml).join(' · ')}</div>` : '';
-    head = `<div class="verdict is-bad">Answer <span class="reveal">${escapeHtml(expected)}</span>${moved}</div>${others}`;
+    head = `<div class="verdict is-bad">Answer <span class="reveal">${escapeHtml(expected)}</span>${moved}</div>${alts}`;
   } else if (verdict === 'accepted') {
     head = `<div class="verdict is-ok">Accepted${moved}</div>
       <div class="typed-back" style="margin-top:6px">“${escapeHtml(typed)}” is now saved as another meaning, beside <strong>${escapeHtml(expected)}</strong></div>`;
@@ -383,17 +398,16 @@ function feedback(verdict, typed, expected, move) {
     head = `<div class="verdict is-ok">Correct${whole}${moved}</div>`;
   } else if (verdict === 'accent') {
     /* The word was there. Show precisely which marks went astray. */
-    const marked = markAccents(typed, expected);
     head = `<div class="verdict is-warn">Right word, wrong accents
       <span class="reveal">${escapeHtml(expected)}</span>${moved}</div>
-      <div class="typed-back" style="margin-top:6px">you typed ${marked}</div>${alts}${acceptBtn}`;
+      <div class="typed-back" style="margin-top:6px">you typed ${markAccents(typed, expected)}</div>${alts}${acceptBtn}`;
   } else {
     head = `<div class="verdict is-bad">Not quite
       <span class="reveal">${escapeHtml(expected)}</span>${moved}</div>
       <div class="typed-back" style="margin-top:6px">you typed <s>${escapeHtml(typed)}</s></div>${alts}${acceptBtn}`;
   }
 
-  /* When the word was the answer, it has only just appeared — in the verdict
+  /* When the word was the answer it has only just appeared — in the verdict
      above — so that is where its Listen again goes, not by the English prompt. */
   const hear = shownSide === 'back'
     ? `<div class="row" style="margin-top:8px"><button class="btn btn--sm" data-say>Listen again</button></div>` : '';
@@ -403,8 +417,8 @@ function feedback(verdict, typed, expected, move) {
 /* ── notes ───────────────────────────────────────────────────────────── */
 
 /* Notes can be written once the card has been answered or revealed — before
-   that they would give the answer away. They are saved straight into the
-   deck, exactly as if typed into the Flashcards tab. */
+   that they would give the answer away. They are saved straight into the deck
+   the card came from, exactly as if typed into the Flashcards tab. */
 function notesHtml(editing) {
   if (editing) {
     return `<textarea id="ty-notes-input" class="notes-edit" rows="3" spellcheck="false"
@@ -412,7 +426,7 @@ function notesHtml(editing) {
       <div class="row" style="margin-top:8px">
         <button class="btn btn--sm btn--primary" id="ty-notes-save">Save notes</button>
         <button class="btn btn--sm" id="ty-notes-cancel">Cancel</button>
-        <span class="note">⌘ + Enter to save · Esc to cancel</span>
+        <span class="note">⌘ / Ctrl + Enter to save · Esc to cancel</span>
       </div>`;
   }
   const box = current.notes
@@ -443,7 +457,9 @@ async function saveNotes() {
   /* The Last card panel keeps its own copy; keep it in step. */
   if (justAnswered) justAnswered.notes = current.notes;
   renderNotes(false);
-  await store.saveDeck();
+  /* Written back to this card's own deck, which in a multi-deck session is
+     rarely the one open in the editor. */
+  await store.saveCardDecks(current);
 }
 
 function markAccents(typed, expected) {

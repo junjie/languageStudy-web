@@ -10,8 +10,9 @@
      recent     the last 8 results, oldest first
      last_seen  ISO date of the last answer
      alternatives  optional: other meanings accepted as right, beside back
-     accent_slip  true while the word's last miss was accents only: set by a
-                right-word-wrong-accents answer, cleared by an exact one
+     accent_slip   optional: true while the word's last miss was the accents
+                only. Set by a right-word-wrong-accents answer, cleared by an
+                exact one, and what the Accents filter drills.
 
    encounters and correct are derived from recent[] on demand and never
    stored: a rolling window of 8 is the only history kept, so a second copy of
@@ -33,11 +34,11 @@ export function stats(card) {
    nothing else may reimplement it.
 
    accentSlip marks an answer that had the right word with the wrong accents.
-   It still counts as wrong — accents are the skill — but it also flags the
-   card for the Accents filter, until the word is next typed exactly. A plain
-   wrong answer leaves the flag as it was, and so does a right answer typed in
-   the other language (typedFront false) — getting the meaning right says
-   nothing about the accents. */
+   It still counts as wrong — accents are the skill being drilled — but it also
+   flags the card for the Accents filter until the word is next typed exactly.
+   A plain wrong answer leaves the flag as it was, and so does a right answer
+   typed in the other direction (typedFront false): getting the meaning right
+   says nothing about whether the accents have been learnt. */
 export function recordResult(card, ok, { accentSlip = false, typedFront = true } = {}) {
   const before = card.score;
   if (accentSlip) card.accent_slip = true;
@@ -62,10 +63,10 @@ export function recordResult(card, ok, { accentSlip = false, typedFront = true }
   return { before, after: card.score, encounters, correct };
 }
 
-/* Turn the answer just recorded into a right one — the learner has said a
+/* Turn the answer just recorded into a right one — the learner has said that a
    meaning they typed is as good as the card's. The wrong answer is taken back
    out of the window and a right one recorded in its place, through the same
-   rules as any other answer. */
+   rules as any other answer rather than by poking at the score. */
 export function amendLastToRight(card) {
   if (Array.isArray(card.recent) && card.recent.length && card.recent[card.recent.length - 1] === false) {
     card.recent.pop();
@@ -73,8 +74,9 @@ export function amendLastToRight(card) {
   return recordResult(card, true, { typedFront: false });
 }
 
-/* Adds a meaning to the card's alternatives, unless it already matches one
-   of its meanings. Returns true when the card changed. */
+/* Adds a meaning to the card's alternatives, unless it already matches one of
+   the meanings the card has. Returns true when the card changed. `same` is the
+   caller's idea of equality, because deck.js does not judge text. */
 export function addAlternative(card, text, same) {
   const t = String(text || '').trim();
   if (!t || meanings(card).some((m) => same(t, m))) return false;
@@ -82,32 +84,54 @@ export function addAlternative(card, text, same) {
   return true;
 }
 
-/* Every answer that counts as the meaning: the back, then any alternatives. */
+/* Every answer that counts as this card's meaning: the back, then any
+   alternatives the learner has accepted. */
 export function meanings(card) {
-  return [card.back, ...(card.alternatives || [])];
+  return [card.back, ...((card && card.alternatives) || [])];
 }
 
 export function today() {
   return new Date().toISOString().slice(0, 10);
 }
 
-/* Weighted draw, without replacement. A score-1 card is 25x likelier than a
-   score-5 one, which is what keeps practice on the weak material. */
+/* How much likelier this card is to come up than a mastered one. A score-1
+   card weighs 25 against a score-5 card's 1, which is what keeps practice on
+   the weak material. */
+export function cardWeight(card) {
+  return (6 - ((card && card.score) || 1)) ** 2;
+}
+
+function drawIndex(weights) {
+  const total = weights.reduce((a, b) => a + b, 0);
+  let r = Math.random() * total;
+  for (let i = 0; i < weights.length; i++) {
+    r -= weights[i];
+    if (r <= 0) return i;
+  }
+  return weights.length - 1;
+}
+
+/* Weighted draw, without replacement. */
 export function pickWeighted(pool, n = 1) {
   const rest = pool.slice();
   const out = [];
   while (out.length < n && rest.length) {
-    const weights = rest.map((c) => (6 - (c.score || 1)) ** 2);
-    const total = weights.reduce((a, b) => a + b, 0);
-    let r = Math.random() * total;
-    let idx = rest.length - 1;
-    for (let i = 0; i < rest.length; i++) {
-      r -= weights[i];
-      if (r <= 0) { idx = i; break; }
-    }
-    out.push(rest.splice(idx, 1)[0]);
+    out.push(rest.splice(drawIndex(rest.map(cardWeight)), 1)[0]);
   }
   return out;
+}
+
+/* Pick one group of cards — in practice one deck — from several.
+
+   Dictation builds each sentence from a single deck, so the deck has to be
+   chosen before the cards are. Weighting a deck by the sum of its cards'
+   weights makes that choice invisible: every card ends up exactly as likely
+   to be drawn as it would have been from one flat pool, so ticking a second
+   deck does not quietly halve how often the first one is practised. */
+export function pickGroup(groups) {
+  if (!groups.length) return null;
+  const weights = groups.map((g) => g.cards.reduce((sum, c) => sum + cardWeight(c), 0));
+  return groups[drawIndex(weights)];
 }
 
 export function inScope(card, scope) {
@@ -277,9 +301,11 @@ export function importWatchlist(text) {
   return { cards };
 }
 
-/* A file someone opened: a deck, or failing that a watchlist. The deck's own
-   error is the one reported, since a deck is what most files will be. */
-export function readDeckFile(text) {
+/* A file someone opened: a deck, or failing that a CLI watchlist. The deck's
+   own error is the one reported, since a deck is what most files will be.
+   (store.js has its own readDeckFile, which takes a deck's name and goes to
+   the store for it; this one is handed the text and decides what it is.) */
+export function parseDeckFile(text) {
   const deck = parseDeck(text);
   if (!deck.error) return { cards: deck.cards, format: 'deck' };
   const watchlist = importWatchlist(text);
