@@ -67,6 +67,7 @@ export function init() {
   });
   store.subscribe('settings', renderSpeak);
   speech.onVoicesChanged(renderSpeak);
+  speech.onSpoken(renderVoiceNote);
   wireSpeechPanel();
   renderSpeak();
 
@@ -186,6 +187,7 @@ function next() {
         ${shownSide === 'front' ? `<div class="row" style="margin-top:8px">
           <button class="btn btn--sm" data-say>Listen again</button>
           ${listening ? '<button class="btn btn--sm" id="ty-hear-btn"></button>' : ''}
+          <span class="note voice-note"></span>
         </div>` : ''}
         ${listening ? '<div id="ty-heard" style="margin-top:12px" hidden></div>' : ''}
         <label class="field" style="margin-top:24px">
@@ -321,6 +323,19 @@ function wireSpeechPanel() {
     const text = visible ? current.front.replace(/\([^)]*\)/g, ' ') : 'Xin chào';
     speech.speak(text, targetCode(), { voice: s.speechVoice, rate: s.speechRate });
   });
+}
+
+/* Beside Listen again: which voice read the word, and whether it came from a
+   saved clip (free), was fetched just now (and saved), or was the device's.
+   When autoplay was refused, Listen again is lit up and the note says why. */
+function renderVoiceNote({ voice, source, blocked }) {
+  if ($('panel-typing').hidden) return;
+  const text = blocked ? `${voice} · blocked by the browser — press Listen again`
+    : source === 'saved' ? `${voice} · saved clip`
+    : source === 'fetched' ? `${voice} · new, now saved`
+    : `${voice} · device voice`;
+  for (const el of document.querySelectorAll('#ty-card .voice-note')) el.textContent = text;
+  for (const btn of document.querySelectorAll('#ty-card [data-say]')) btn.classList.toggle('btn--primary', !!blocked);
 }
 
 function renderSpeak() {
@@ -500,7 +515,8 @@ function feedback(verdict, typed, expected, move) {
   /* When the word was the answer it has only just appeared — in the verdict
      above — so that is where its Listen again goes, not by the English prompt. */
   const hear = shownSide === 'back'
-    ? `<div class="row" style="margin-top:8px"><button class="btn btn--sm" data-say>Listen again</button></div>` : '';
+    ? `<div class="row" style="margin-top:8px"><button class="btn btn--sm" data-say>Listen again</button>
+       <span class="note voice-note"></span></div>` : '';
   return head + hear + `<div id="ty-notes-area" style="margin-top:12px">${notesHtml(false)}</div>`;
 }
 
