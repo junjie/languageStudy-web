@@ -330,6 +330,19 @@ anywhere and point Chrome at it as a data folder, or bring it straight back with
 **Restore from a backup…**, which overwrites any file of the same name and
 leaves everything else alone.
 
+**When browser storage is where your data lives, the app reminds you.** Safari
+deletes everything a site has saved after seven days of using Safari without
+opening the site ([WebKit](https://webkit.org/blog/10218/full-third-party-cookie-blocking-and-more/))
+— days of use, and opening the site resets the count — and any browser clears
+it with site data. A web app added to the Home Screen or the Dock keeps its own
+count and is not expected to lose its data. So once you have
+practised since your last backup and that backup is a week old — a month, if
+the browser has promised to keep the data — a banner above every tab says so,
+with **Download backup** right there and **Later** to put it off until tomorrow.
+Either file counts as a backup. Settings shows *Last backup* in its status line.
+A folder on disk never gets the reminder: its files are not the browser's to
+delete.
+
 ## The bundle
 
 **Export everything** writes one JSON file holding every deck and all your

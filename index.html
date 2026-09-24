@@ -26,6 +26,17 @@
 
 <main>
 
+<!-- Shown above every tab when browser storage has gone a while without a backup. -->
+<div class="wrap backup-due" id="backup-due" hidden>
+  <div class="banner is-warn" role="status">
+    <span id="backup-due-text"></span>
+    <div class="row">
+      <button class="btn btn--sm btn--primary" id="backup-due-save">Download backup</button>
+      <button class="btn btn--sm" id="backup-due-later">Later</button>
+    </div>
+  </div>
+</div>
+
 <!-- ── SETTINGS ──────────────────────────────────────────────── -->
 <section class="panel" id="panel-settings" role="tabpanel" aria-labelledby="tab-settings" hidden>
 <div class="wrap">

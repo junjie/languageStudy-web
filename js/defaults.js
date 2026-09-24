@@ -176,6 +176,12 @@ export const DEFAULT_SETTINGS = {
      The Flashcards tab keeps this list and never lets it empty out. */
   practiceDecks: [],
   theme: 'dark',
+  /* When the last backup (zip or bundle) was taken, when the app started
+     counting if there has been none, and until when Later puts the reminder
+     off. ISO times; see backup-due.js. */
+  lastBackup: '',
+  backupSince: '',
+  backupSnoozedUntil: '',
 };
 
 /* Shown on first run and written to decks/default.json when a folder with no
