@@ -65,7 +65,10 @@ and nothing is saved, so the card keeps the form it was written in.
 **Dictation** — a sentence is written around two or three of your weakest cards,
 spoken aloud, and diffed word by word against what you type. Needs an API key.
 Sentences are banked on disk and replay for free forever, and any one of them
-can be downloaded as a `.wav`. A target word you heard but mis-accented is
+can be downloaded. The audio is saved as Ogg Opus, about a twelfth the size of
+the WAV Gemini sends, so a big bank stays small in storage and in backups; a
+browser without an Opus encoder (Safari before 26, Firefox before 130) saves
+WAV instead, and sentences banked as WAV before this keep playing. A target word you heard but mis-accented is
 flagged the same way Typing flags one, and Dictation has its own **Accents**
 filter for building sentences around those words.
 
@@ -258,7 +261,8 @@ decks/<name>.json      one file per deck
 audio/manifest.json    the sentence bank index — Dictation and Shadowing
                        both read and write this one file
 audio/quota.json       the rolling API call budget
-audio/<id>.wav         generated speech
+audio/<id>.ogg         generated speech (.wav for older sentences, or
+                       where the browser cannot encode Opus)
 audio/<id>.txt         its transcript, translation, target words,
                        deck and difficulty
 shadowing/manifest.json   the index of shadowing sets
@@ -510,6 +514,7 @@ js/speech.js          the device's own voices, for reading words aloud
 js/recorder.js        the microphone: MediaRecorder, and releasing it again
 js/shadowing.js       building a set, laying out the grading call, reading it back
 js/gemini.js          API calls, call budget, WAV wrapping
+js/opus.js            dictation audio as Ogg Opus, through the browser's encoder
 js/bundle.js          the export/import file format
 js/zip.js             just enough zip to write and read a backup
 js/storage.js         the store: layout, files, and which backend is live

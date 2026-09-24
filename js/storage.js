@@ -9,7 +9,9 @@
      decks/<slug>.json    one deck per file
      audio/manifest.json  the dictation bank index
      audio/quota.json     the rolling API call budget
-     audio/<id>.wav|.txt  generated speech and its transcript
+     audio/<id>.ogg|.txt  generated speech and its transcript (.wav
+                          for sentences made before Opus, or where the
+                          browser cannot encode it)
      shadowing/manifest.json   the shadowing session index
      shadowing/<id>.json       one session: its lines and its feedback
      shadowing/<id>_<n>.webm   your own voice, one file per line
@@ -349,7 +351,10 @@ const DATA_DIRS = ['decks', 'audio', 'shadowing', 'voice'];
    hands back whatever its browser prefers: webm on Chrome, ogg on Firefox,
    mp4 on Safari. The file is named from the recorder's own mimeType rather
    than assumed, so a backup written on one browser opens on another. */
-const DATA_FILE = /^(settings\.json|decks\/[^/.][^/]*\.json|audio\/[^/.][^/]*\.(json|wav|txt)|shadowing\/[^/.][^/]*\.(json|webm|ogg|mp4|m4a|wav)|voice\/[^/.][^/]*\.mp3)$/;
+
+const DATA_FILE = /^(settings\.json|decks\/[^/.][^/]*\.json|audio\/[^/.][^/]*\.(json|wav|ogg|txt)|shadowing\/[^/.][^/]*\.(json|webm|ogg|mp4|m4a|wav))$/;
+
+// const DATA_FILE = /^(settings\.json|decks\/[^/.][^/]*\.json|audio\/[^/.][^/]*\.(json|wav|txt)|shadowing\/[^/.][^/]*\.(json|webm|ogg|mp4|m4a|wav)|voice\/[^/.][^/]*\.mp3)$/;
 
 /* Maps a path from a zip or a picked folder onto the data layout, or null.
    Leading folders are dropped, because a backup that was unzipped and zipped

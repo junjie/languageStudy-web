@@ -227,13 +227,13 @@ async function generate() {
   idle(`Writing a sentence around ${terms.length} of your weakest words from ${group.name}, then reading it aloud…`);
 
   try {
-    const { entry, wav, sidecar } = await store.client.generateCard(terms, store.state.manifest, group.name);
+    const { entry, audio: clip, sidecar } = await store.client.generateCard(terms, store.state.manifest, group.name);
     if (store.state.persistent) {
-      await storage.writeBlob(entry.file, wav);
+      await storage.writeBlob(entry.file, clip);
       await storage.writeText(entry.text_file, sidecar);
     } else {
       /* Nothing is being saved: keep it playable for this session only. */
-      entry.blobUrl = URL.createObjectURL(wav);
+      entry.blobUrl = URL.createObjectURL(clip);
     }
     store.state.manifest.push(entry);
     await store.saveManifest();
@@ -313,7 +313,7 @@ async function loadCard(entry) {
      fails against a revoked blob. */
   if (audio) { audio.pause(); audio.removeAttribute('src'); audio.load(); }
   if (audioUrl) { URL.revokeObjectURL(audioUrl); audioUrl = null; }
-  /* With no server there is no URL to point at — the wav has to be pulled out
+  /* With no server there is no URL to point at — the audio has to be pulled out
      of the folder and turned into a blob URL each time. */
   const src = entry.blobUrl || await storage.readBlobUrl(entry.file);
   if (!entry.blobUrl) audioUrl = src;
@@ -363,7 +363,9 @@ async function downloadAudio() {
     ? await fetch(current.blobUrl).then((r) => r.blob()).catch(() => null)
     : await storage.readBlob(current.file);
   if (!blob) { showError('The audio for this sentence could not be read.'); return; }
-  storage.download(`${current.id}.wav`, blob);
+  /* Named after what is in the file: older sentences are WAV, newer Ogg. */
+  const ext = (/\.(\w+)$/.exec(current.file || '') || [, 'wav'])[1];
+  storage.download(`${current.id}.${ext}`, blob);
 }
 
 function play() {

@@ -1,8 +1,8 @@
 /* Just enough zip to back up the data folder and bring it back.
 
-   Writing only ever stores (no compression): the bulk of a backup is WAV
-   audio, which barely compresses, and storing keeps this small enough to read
-   in one sitting. Reading also accepts deflate, because a backup that was
+   Writing only ever stores (no compression): the bulk of a backup is
+   dictation audio, already compressed as Opus or barely compressible as
+   WAV, and storing keeps this small enough to read in one sitting. Reading also accepts deflate, because a backup that was
    unzipped and re-zipped by the operating system comes back compressed.
 
    No zip64, no encryption, no spanning. A backup that needs any of those is
