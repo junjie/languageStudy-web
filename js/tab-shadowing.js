@@ -439,7 +439,7 @@ async function playModel(index) {
   /* A flashcard has no recording — the device's own voice reads it, free and
      offline, the same voice the Typing tab uses. */
   const s = store.state.settings;
-  speech.speak(item.text, speech.languageCode(session.language || s.targetLanguage), { voice: s.speechVoice });
+  speech.speak(item.text, speech.languageCode(session.language || s.targetLanguage), { voice: s.speechVoice, rate: s.speechRate });
 }
 
 async function playMine(index) {

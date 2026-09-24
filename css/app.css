@@ -332,6 +332,9 @@ textarea { resize: vertical; font: 13px/1.6 var(--mono); }
 }
 .banner.is-bad { border-color: var(--bad); background: var(--bad-soft); color: var(--fg); }
 .banner.is-warn { border-color: var(--warn); background: var(--warn-soft); color: var(--fg); }
+/* The backup reminder sits above the tabs' panels, message then buttons. */
+.backup-due { padding-top: 16px; padding-bottom: 0; }
+.backup-due .banner { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; justify-content: space-between; }
 
 /* ── score squares: the practice window, drawn literally ──────── */
 
@@ -597,15 +600,24 @@ textarea { resize: vertical; font: 13px/1.6 var(--mono); }
 }
 .icon-btn { display: inline-flex; align-items: center; justify-content: center; }
 .icon-btn svg { display: block; width: 16px; height: 16px; }
-/* A hidden word. Always the same size, whatever is under it, so neither its
-   length nor how many words it has can be read off the bar. */
-.redacted {
-  width: min(320px, 100%);
-  height: 35px;
-  background: repeating-linear-gradient(135deg,
-    var(--fg-dim) 0 6px, var(--surface-hi) 6px 12px);
-  opacity: 0.55;
+
+/* Voice and speed, dropping down under the speaker button. */
+.speech-ctl { position: relative; }
+.speech-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 20;
+  width: min(300px, calc(100vw - 32px));
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
 }
+.speech-panel[hidden] { display: none; }
+.rate { width: 100%; accent-color: var(--accent); }
 .prompt-sub { margin-top: 8px; font-size: 13px; color: var(--fg-muted); }
 
 .answer-input {
@@ -660,6 +672,7 @@ textarea { resize: vertical; font: 13px/1.6 var(--mono); }
   color: var(--fg-muted);
 }
 .notes-box { white-space: pre-wrap; }
+.card-edit { display: grid; gap: 10px; }
 .notes-edit {
   width: 100%;
   font: inherit;

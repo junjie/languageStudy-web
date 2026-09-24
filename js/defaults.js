@@ -169,11 +169,22 @@ export const DEFAULT_SETTINGS = {
   typingSpeak: true,
   /* Name of the browser voice to read with; '' picks the best installed. */
   speechVoice: '',
+  /* Its speed: 1 is the voice's own pace. See speech.js for the range. */
+  speechRate: 1,
+  /* Where the user's Azure Speech resource lives; the key itself is kept in
+     localStorage, never here. */
+  azureRegion: 'southeastasia',
   /* Which decks the practice tabs may draw from. Empty means "whichever deck
      is open" — the honest answer on a fresh install, where there is only one.
      The Flashcards tab keeps this list and never lets it empty out. */
   practiceDecks: [],
   theme: 'dark',
+  /* When the last backup (zip or bundle) was taken, when the app started
+     counting if there has been none, and until when Later puts the reminder
+     off. ISO times; see backup-due.js. */
+  lastBackup: '',
+  backupSince: '',
+  backupSnoozedUntil: '',
 };
 
 /* Shown on first run and written to decks/default.json when a folder with no

@@ -11,7 +11,9 @@ import { fillTemplate, sentenceVars, formatWait, GeminiError, QuotaError } from 
 import { serializeDeck } from './deck.js';
 import { serializeBundle, parseBundle, describeBundle, bundleFilename } from './bundle.js';
 import { makeZip, readZip } from './zip.js';
+import { backupDue, lastPractice, firstPractice, agoLabel, DAYS } from './backup-due.js';
 import * as speech from './speech.js';
+import * as azure from './azure-tts.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -45,6 +47,8 @@ export function init() {
   store.subscribe('folder', renderStore);
   store.subscribe('quota', renderQuota);
   store.subscribe('deck', renderStore);
+  store.subscribe('settings', renderBackupDue);
+  wireBackupDue();
   render();
   renderStore();
   renderQuota();
@@ -101,6 +105,7 @@ function wireStore() {
     const name = bundleFilename();
     storage.download(name, serializeBundle(bundle));
     setStoreStatus(`Exported ${describeBundle(readBack(bundle))} to ${name}.`, 'is-ok');
+    backedUp();
   });
 
   $('backup-download').addEventListener('click', async () => {
@@ -117,6 +122,7 @@ function wireStore() {
     const zip = await makeZip(files);
     storage.download(name, zip);
     setStoreStatus(`Backed up ${plural(files.length, 'file')} (${size(zip.size)}) to ${name}.`, 'is-ok');
+    backedUp();
   });
 
   $('backup-restore').addEventListener('click', () => {
@@ -286,6 +292,7 @@ export async function restoreStore() {
 }
 
 function renderStore() {
+  renderBackupDue();
   const kind = storage.backend();
   const where = storage.label();
   const decks = store.state.deckNames.length;
@@ -307,7 +314,8 @@ function renderStore() {
     const risk = storage.isPersisted()
       ? 'Clearing site data for this page deletes it.'
       : 'The browser has not promised to keep it: clearing site data, or weeks without opening this page, deletes it.';
-    setStoreStatus(`Saving in this browser — ${plural(decks, 'deck')}, ${plural(banked, 'banked sentence')}. ${risk}`, 'is-ok');
+    const last = backupState();
+    setStoreStatus(`Saving in this browser — ${plural(decks, 'deck')}, ${plural(banked, 'banked sentence')}. ${risk} Last backup: ${last.never ? 'never' : agoLabel(last.days)}.`, last.due ? 'is-warn' : 'is-ok');
   } else if (storage.lostFolder()) {
     /* Different from never having chosen one: the data is still in that
        folder, and the way back is to point at it again. */
@@ -316,6 +324,53 @@ function renderStore() {
     setStoreStatus('Nothing is being saved. The app still works, but a reload loses it.', '');
   }
   updateBar();
+}
+
+/* ── the backup reminder ─────────────────────────────────────────────── */
+
+function backupState() {
+  const s = store.state.settings;
+  return backupDue({
+    kind: storage.backend(),
+    persisted: storage.isPersisted(),
+    lastBackup: s.lastBackup,
+    since: s.backupSince,
+    snoozedUntil: s.backupSnoozedUntil,
+    practiced: lastPractice(Object.values(store.state.decks).flat(), store.state.manifest),
+  });
+}
+
+function backedUp() {
+  store.saveSettings({ lastBackup: new Date().toISOString(), backupSnoozedUntil: '' });
+}
+
+function wireBackupDue() {
+  /* The same backup as the button in Your data, from wherever the banner is. */
+  $('backup-due-save').addEventListener('click', () => $('backup-download').click());
+  $('backup-due-later').addEventListener('click', () => {
+    store.saveSettings({ backupSnoozedUntil: new Date(Date.now() + DAYS.snooze * 86400000).toISOString() });
+  });
+}
+
+function renderBackupDue() {
+  /* Counting starts from the earliest practice the decks show — so someone
+     who has used the app for months without a backup hears about it now —
+     or from today for a new user, who is not told they have never backed up
+     before they have anything to back up. */
+  if (storage.backend() && !store.state.settings.backupSince) {
+    const since = firstPractice(Object.values(store.state.decks).flat()) || new Date().toISOString();
+    store.saveSettings({ backupSince: since });
+    return;
+  }
+  const state = backupState();
+  $('backup-due').hidden = !state.due;
+  if (!state.due) return;
+  const risk = storage.isPersisted()
+    ? 'Clearing this site’s data would delete everything saved here.'
+    : 'Safari deletes a site’s saved data after a week of using Safari without opening the site, and any browser can clear it.';
+  $('backup-due-text').textContent = (state.never
+    ? `You have practised for ${state.days} days without a backup. `
+    : `Your last backup was ${agoLabel(state.days)}, and you have practised since. `) + risk;
 }
 
 function setStoreStatus(text, cls) {
@@ -857,15 +912,52 @@ function wireSpeech() {
   $('set-speech-voice').addEventListener('change', (e) => {
     store.saveSettings({ speechVoice: e.target.value });
   });
+  const rate = $('set-speech-rate');
+  Object.assign(rate, { min: speech.RATE.min, max: speech.RATE.max, step: speech.RATE.step });
+  /* The label follows the thumb; the setting is saved once it is let go. */
+  rate.addEventListener('input', () => { $('set-speech-rate-val').textContent = speech.rateLabel(rate.value); });
+  rate.addEventListener('change', () => store.saveSettings({ speechRate: speech.clampRate(rate.value) }));
   $('speech-sample').addEventListener('click', () => {
     /* A word from the deck being learnt says more than a stock phrase. */
     const card = store.practiceCards().find((c) => c.front) || null;
     const text = card ? card.front.replace(/\([^)]*\)/g, ' ') : 'Xin chào';
-    speech.speak(text, speech.languageCode(store.state.settings.targetLanguage), { voice: store.state.settings.speechVoice });
+    const s = store.state.settings;
+    speech.speak(text, speech.languageCode(s.targetLanguage), { voice: s.speechVoice, rate: s.speechRate });
   });
   store.subscribe('settings', renderSpeech);
   speech.onVoicesChanged(renderSpeech);
+  wireAzure();
   renderSpeech();
+}
+
+/* The Azure key sits in localStorage like the Gemini key; the region is a
+   setting. Either changing, or the language, reloads the list of voices. */
+function wireAzure() {
+  const key = $('set-azure-key');
+  const region = $('set-azure-region');
+  key.value = azure.getKey();
+  region.value = store.state.settings.azureRegion || azure.DEFAULT_REGION;
+  const reload = async () => {
+    const btn = $('azure-load');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span>Loading';
+    await speech.loadAzure(store.state.settings.azureRegion, speech.languageCode(store.state.settings.targetLanguage));
+    btn.disabled = false;
+    btn.textContent = 'Load voices';
+  };
+  key.addEventListener('change', () => { azure.setKey(key.value.trim()); reload(); });
+  region.addEventListener('change', async () => {
+    const r = azure.cleanRegion(region.value) || azure.DEFAULT_REGION;
+    region.value = r;
+    await store.saveSettings({ azureRegion: r });
+    reload();
+  });
+  $('azure-load').addEventListener('click', reload);
+  let language = store.state.settings.targetLanguage;
+  store.subscribe('settings', (s) => {
+    if (s.settings.targetLanguage !== language) { language = s.settings.targetLanguage; reload(); }
+  });
+  if (azure.getKey()) reload();
 }
 
 function renderSpeech() {
@@ -874,29 +966,49 @@ function renderSpeech() {
   const list = speech.voicesFor(code);
   const sel = $('set-speech-voice');
   const chosen = s.speechVoice || '';
-  const missing = chosen && !list.some((v) => v.name === chosen);
-  sel.innerHTML = [
-    `<option value="">Best available${list[0] ? ` (${escapeAttr(list[0].name)})` : ''}</option>`,
-    ...list.map((v) => `<option value="${escapeAttr(v.name)}">${escapeAttr(v.name)} · ${escapeAttr(v.lang)}${v.localService ? '' : ' · online'}</option>`),
-    ...(missing ? [`<option value="${escapeAttr(chosen)}">${escapeAttr(chosen)} · not installed here</option>`] : []),
-  ].join('');
+  const cloud = speech.azureStatus().voices.map((v) => speech.AZURE_PREFIX + v.name);
+  const missing = chosen && !list.some((v) => v.name === chosen) && !cloud.includes(chosen);
+  const any = speech.canSpeak(code);
+  sel.innerHTML = speech.voiceOptions(code, chosen);
   sel.value = chosen;
-  sel.disabled = !list.length;
-  $('speech-sample').disabled = !list.length;
+  sel.disabled = !any;
+  $('speech-sample').disabled = !any;
+  const rate = $('set-speech-rate');
+  if (document.activeElement !== rate) rate.value = speech.clampRate(s.speechRate);
+  $('set-speech-rate-val').textContent = speech.rateLabel(rate.value);
+  rate.disabled = !any;
 
   const el = $('speech-status');
   if (!code) {
     el.textContent = `"${s.targetLanguage}" is not a language name this app knows a code for — try its English name, or a code such as "vi".`;
     el.className = 'status is-warn';
-  } else if (!list.length) {
+  } else if (!list.length && !any) {
     el.textContent = `No ${s.targetLanguage} voice is installed on this device, so nothing is read aloud.`;
     el.className = 'status is-warn';
+  } else if (!list.length) {
+    el.textContent = `No ${s.targetLanguage} voice on this device.`;
+    el.className = 'status is-warn';
   } else if (missing) {
-    el.textContent = `"${chosen}" is not installed on this device, so ${list[0].name} is used instead.`;
+    el.textContent = chosen.startsWith(speech.AZURE_PREFIX)
+      ? (speech.azureStatus().key
+        ? `${chosen.slice(speech.AZURE_PREFIX.length)} cannot be reached right now: words already saved still play in it, and new ones are read by the device voice.`
+        : `${chosen.slice(speech.AZURE_PREFIX.length)} is an Azure voice and needs your key, so the device voice reads instead.`)
+      : `"${chosen}" is not installed on this device, so ${list[0] ? list[0].name : 'the best available'} is used instead.`;
     el.className = 'status is-warn';
   } else {
     el.textContent = `${list.length} ${s.targetLanguage} voice${list.length === 1 ? '' : 's'} installed.`;
     el.className = 'status is-ok';
+  }
+
+  /* What Azure is doing, after what the device has. */
+  const az = speech.azureStatus();
+  if (az.key && az.problem) {
+    el.textContent += `  ·  ${az.problem}`;
+    el.className = 'status is-warn';
+  } else if (az.key && az.voices.length) {
+    el.textContent += `  ·  Azure: ${az.voices.length} ${s.targetLanguage} voice${az.voices.length === 1 ? '' : 's'} (${az.voices.map((v) => v.label).join(', ')}) · ${az.saved} word${az.saved === 1 ? '' : 's'} saved, played without calling Azure again.`;
+  } else if (az.key && az.code) {
+    el.textContent += `  ·  Azure has no ${s.targetLanguage} voice.`;
   }
 }
 

@@ -15,6 +15,8 @@
      shadowing/manifest.json   the shadowing session index
      shadowing/<id>.json       one session: its lines and its feedback
      shadowing/<id>_<n>.webm   your own voice, one file per line
+     voice/<voice>_<hash>.mp3  a word read by an Azure voice, kept so it is
+                               fetched once, ever — see azure-tts.js
 
    Two kinds of directory can hold that layout:
 
@@ -339,7 +341,7 @@ export function ensureSubdirs() {
 
 /* ── the data layout, as a set of paths ──────────────────────────────── */
 
-const DATA_DIRS = ['decks', 'audio', 'shadowing'];
+const DATA_DIRS = ['decks', 'audio', 'shadowing', 'voice'];
 
 /* Exactly the files this app owns. Everything else in a folder — a .git, a
    README, a .DS_Store, the ._name AppleDouble files macOS adds when it zips —
@@ -349,7 +351,10 @@ const DATA_DIRS = ['decks', 'audio', 'shadowing'];
    hands back whatever its browser prefers: webm on Chrome, ogg on Firefox,
    mp4 on Safari. The file is named from the recorder's own mimeType rather
    than assumed, so a backup written on one browser opens on another. */
+
 const DATA_FILE = /^(settings\.json|decks\/[^/.][^/]*\.json|audio\/[^/.][^/]*\.(json|wav|ogg|txt)|shadowing\/[^/.][^/]*\.(json|webm|ogg|mp4|m4a|wav))$/;
+
+// const DATA_FILE = /^(settings\.json|decks\/[^/.][^/]*\.json|audio\/[^/.][^/]*\.(json|wav|txt)|shadowing\/[^/.][^/]*\.(json|webm|ogg|mp4|m4a|wav)|voice\/[^/.][^/]*\.mp3)$/;
 
 /* Maps a path from a zip or a picked folder onto the data layout, or null.
    Leading folders are dropped, because a backup that was unzipped and zipped
