@@ -857,11 +857,17 @@ function wireSpeech() {
   $('set-speech-voice').addEventListener('change', (e) => {
     store.saveSettings({ speechVoice: e.target.value });
   });
+  const rate = $('set-speech-rate');
+  Object.assign(rate, { min: speech.RATE.min, max: speech.RATE.max, step: speech.RATE.step });
+  /* The label follows the thumb; the setting is saved once it is let go. */
+  rate.addEventListener('input', () => { $('set-speech-rate-val').textContent = speech.rateLabel(rate.value); });
+  rate.addEventListener('change', () => store.saveSettings({ speechRate: speech.clampRate(rate.value) }));
   $('speech-sample').addEventListener('click', () => {
     /* A word from the deck being learnt says more than a stock phrase. */
     const card = store.practiceCards().find((c) => c.front) || null;
     const text = card ? card.front.replace(/\([^)]*\)/g, ' ') : 'Xin chào';
-    speech.speak(text, speech.languageCode(store.state.settings.targetLanguage), { voice: store.state.settings.speechVoice });
+    const s = store.state.settings;
+    speech.speak(text, speech.languageCode(s.targetLanguage), { voice: s.speechVoice, rate: s.speechRate });
   });
   store.subscribe('settings', renderSpeech);
   speech.onVoicesChanged(renderSpeech);
@@ -875,14 +881,14 @@ function renderSpeech() {
   const sel = $('set-speech-voice');
   const chosen = s.speechVoice || '';
   const missing = chosen && !list.some((v) => v.name === chosen);
-  sel.innerHTML = [
-    `<option value="">Best available${list[0] ? ` (${escapeAttr(list[0].name)})` : ''}</option>`,
-    ...list.map((v) => `<option value="${escapeAttr(v.name)}">${escapeAttr(v.name)} · ${escapeAttr(v.lang)}${v.localService ? '' : ' · online'}</option>`),
-    ...(missing ? [`<option value="${escapeAttr(chosen)}">${escapeAttr(chosen)} · not installed here</option>`] : []),
-  ].join('');
+  sel.innerHTML = speech.voiceOptions(code, chosen);
   sel.value = chosen;
   sel.disabled = !list.length;
   $('speech-sample').disabled = !list.length;
+  const rate = $('set-speech-rate');
+  if (document.activeElement !== rate) rate.value = speech.clampRate(s.speechRate);
+  $('set-speech-rate-val').textContent = speech.rateLabel(rate.value);
+  rate.disabled = !list.length;
 
   const el = $('speech-status');
   if (!code) {
