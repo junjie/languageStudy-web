@@ -13,6 +13,7 @@ import { serializeBundle, parseBundle, describeBundle, bundleFilename } from './
 import { makeZip, readZip } from './zip.js';
 import { backupDue, lastPractice, firstPractice, agoLabel, DAYS } from './backup-due.js';
 import * as speech from './speech.js';
+import * as azure from './azure-tts.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -925,7 +926,38 @@ function wireSpeech() {
   });
   store.subscribe('settings', renderSpeech);
   speech.onVoicesChanged(renderSpeech);
+  wireAzure();
   renderSpeech();
+}
+
+/* The Azure key sits in localStorage like the Gemini key; the region is a
+   setting. Either changing, or the language, reloads the list of voices. */
+function wireAzure() {
+  const key = $('set-azure-key');
+  const region = $('set-azure-region');
+  key.value = azure.getKey();
+  region.value = store.state.settings.azureRegion || azure.DEFAULT_REGION;
+  const reload = async () => {
+    const btn = $('azure-load');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span>Loading';
+    await speech.loadAzure(store.state.settings.azureRegion, speech.languageCode(store.state.settings.targetLanguage));
+    btn.disabled = false;
+    btn.textContent = 'Load voices';
+  };
+  key.addEventListener('change', () => { azure.setKey(key.value.trim()); reload(); });
+  region.addEventListener('change', async () => {
+    const r = azure.cleanRegion(region.value) || azure.DEFAULT_REGION;
+    region.value = r;
+    await store.saveSettings({ azureRegion: r });
+    reload();
+  });
+  $('azure-load').addEventListener('click', reload);
+  let language = store.state.settings.targetLanguage;
+  store.subscribe('settings', (s) => {
+    if (s.settings.targetLanguage !== language) { language = s.settings.targetLanguage; reload(); }
+  });
+  if (azure.getKey()) reload();
 }
 
 function renderSpeech() {
@@ -934,29 +966,49 @@ function renderSpeech() {
   const list = speech.voicesFor(code);
   const sel = $('set-speech-voice');
   const chosen = s.speechVoice || '';
-  const missing = chosen && !list.some((v) => v.name === chosen);
+  const cloud = speech.azureStatus().voices.map((v) => speech.AZURE_PREFIX + v.name);
+  const missing = chosen && !list.some((v) => v.name === chosen) && !cloud.includes(chosen);
+  const any = speech.canSpeak(code);
   sel.innerHTML = speech.voiceOptions(code, chosen);
   sel.value = chosen;
-  sel.disabled = !list.length;
-  $('speech-sample').disabled = !list.length;
+  sel.disabled = !any;
+  $('speech-sample').disabled = !any;
   const rate = $('set-speech-rate');
   if (document.activeElement !== rate) rate.value = speech.clampRate(s.speechRate);
   $('set-speech-rate-val').textContent = speech.rateLabel(rate.value);
-  rate.disabled = !list.length;
+  rate.disabled = !any;
 
   const el = $('speech-status');
   if (!code) {
     el.textContent = `"${s.targetLanguage}" is not a language name this app knows a code for — try its English name, or a code such as "vi".`;
     el.className = 'status is-warn';
-  } else if (!list.length) {
+  } else if (!list.length && !any) {
     el.textContent = `No ${s.targetLanguage} voice is installed on this device, so nothing is read aloud.`;
     el.className = 'status is-warn';
+  } else if (!list.length) {
+    el.textContent = `No ${s.targetLanguage} voice on this device.`;
+    el.className = 'status is-warn';
   } else if (missing) {
-    el.textContent = `"${chosen}" is not installed on this device, so ${list[0].name} is used instead.`;
+    el.textContent = chosen.startsWith(speech.AZURE_PREFIX)
+      ? (speech.azureStatus().key
+        ? `${chosen.slice(speech.AZURE_PREFIX.length)} cannot be reached right now: words already saved still play in it, and new ones are read by the device voice.`
+        : `${chosen.slice(speech.AZURE_PREFIX.length)} is an Azure voice and needs your key, so the device voice reads instead.`)
+      : `"${chosen}" is not installed on this device, so ${list[0] ? list[0].name : 'the best available'} is used instead.`;
     el.className = 'status is-warn';
   } else {
     el.textContent = `${list.length} ${s.targetLanguage} voice${list.length === 1 ? '' : 's'} installed.`;
     el.className = 'status is-ok';
+  }
+
+  /* What Azure is doing, after what the device has. */
+  const az = speech.azureStatus();
+  if (az.key && az.problem) {
+    el.textContent += `  ·  ${az.problem}`;
+    el.className = 'status is-warn';
+  } else if (az.key && az.voices.length) {
+    el.textContent += `  ·  Azure: ${az.voices.length} ${s.targetLanguage} voice${az.voices.length === 1 ? '' : 's'} (${az.voices.map((v) => v.label).join(', ')}) · ${az.saved} word${az.saved === 1 ? '' : 's'} saved, played without calling Azure again.`;
+  } else if (az.key && az.code) {
+    el.textContent += `  ·  Azure has no ${s.targetLanguage} voice.`;
   }
 }
 
