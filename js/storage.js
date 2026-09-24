@@ -352,9 +352,7 @@ const DATA_DIRS = ['decks', 'audio', 'shadowing', 'voice'];
    mp4 on Safari. The file is named from the recorder's own mimeType rather
    than assumed, so a backup written on one browser opens on another. */
 
-const DATA_FILE = /^(settings\.json|decks\/[^/.][^/]*\.json|audio\/[^/.][^/]*\.(json|wav|ogg|txt)|shadowing\/[^/.][^/]*\.(json|webm|ogg|mp4|m4a|wav))$/;
-
-// const DATA_FILE = /^(settings\.json|decks\/[^/.][^/]*\.json|audio\/[^/.][^/]*\.(json|wav|txt)|shadowing\/[^/.][^/]*\.(json|webm|ogg|mp4|m4a|wav)|voice\/[^/.][^/]*\.mp3)$/;
+const DATA_FILE = /^(settings\.json|decks\/[^/.][^/]*\.json|audio\/[^/.][^/]*\.(json|wav|ogg|txt)|shadowing\/[^/.][^/]*\.(json|webm|ogg|mp4|m4a|wav)|voice\/[^/.][^/]*\.mp3)$/;
 
 /* Maps a path from a zip or a picked folder onto the data layout, or null.
    Leading folders are dropped, because a backup that was unzipped and zipped
