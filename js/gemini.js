@@ -12,6 +12,7 @@
    that a retry storm would eat a day's budget in a minute. */
 
 import { words, contains } from './text.js';
+import { isPattern } from './deck.js';
 import { VOICE_NAMES, modelLimits } from './defaults.js';
 import { buildGradingParts, readGrading, attachableClips } from './shadowing.js';
 import { encodeOggOpus, OPUS_MIME } from './opus.js';
@@ -37,9 +38,12 @@ export function fillTemplate(template, vars) {
     (Object.prototype.hasOwnProperty.call(vars, name) ? String(vars[name]) : match));
 }
 
+/* A pattern card is said to be one, so the model fills its gaps rather than
+   copying "A mà B" into the sentence letter for letter. */
 export function buildTermListing(terms) {
   return terms
-    .map((t) => `- "${t.front}"` + (t.back ? ` (${t.back})` : ''))
+    .map((t) => `- "${t.front}"` + (t.back ? ` (${t.back})` : '')
+      + (isPattern(t) ? ' — a pattern: use it with its gaps filled' : ''))
     .join('\n');
 }
 
@@ -99,7 +103,7 @@ export function sentenceProblem(target, terms, settings) {
   if (w.length < min) return `too short (${w.length} words)`;
   if (w.length > max) return `too long (${w.length} words)`;
   if (target.trimStart().startsWith('>')) return 'looks like commentary, not a sentence';
-  const missing = terms.filter((t) => !contains(w, t.front)).map((t) => t.front);
+  const missing = terms.filter((t) => !contains(w, t.front, isPattern(t))).map((t) => t.front);
   if (missing.length) return 'missing target word(s): ' + missing.join(', ');
   return null;
 }
