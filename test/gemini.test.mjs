@@ -22,9 +22,12 @@ test('the term listing carries the meaning only when there is one', () => {
   assert.equal(buildTermListing(TERMS), '- "cải tiến" (to improve)\n- "tận hưởng"');
 });
 
-test('a pattern card is listed as one, so its gaps are filled', () => {
-  assert.equal(buildTermListing([{ front: 'hễ … là …', back: 'whenever … then', type: 'pattern' }]),
-    '- "hễ … là …" (whenever … then) — a pattern: use it with its gaps filled');
+test('a pattern card is listed as one, to be used in its meaning with its gaps filled', () => {
+  const line = buildTermListing([{ front: 'mỗi … một …', back: 'each … (has its own) …', type: 'pattern' }]);
+  assert.match(line, /^- the grammar pattern "mỗi … một …", meaning "each … \(has its own\) …": /);
+  assert.match(line, /use this construction, in exactly this meaning/);
+  assert.match(line, /Each … \(or capital letter\) is a gap for your own words/);
+  assert.equal(buildTermListing([{ front: 'sắm', back: 'to buy', type: 'word' }]), '- "sắm" (to buy)', 'other cards as before');
 });
 
 test('sentenceProblem finds a pattern by its fixed words, and only on a pattern card', () => {
